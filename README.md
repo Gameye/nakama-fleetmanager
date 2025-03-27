@@ -31,8 +31,8 @@ We recommend taking a look at any of the examples in the [examples](./examples) 
 ## Limitations
 
 There are some limitations to this integration that the existing GameLift integration does not have. They are the following:
-- Lack of Pagination support in Gameye's Session API. This prevents us from fully implementing the FleetManager#List querying mechanism.
-- Gameye does not support latency based matchmaking. This means that this integration does not do anything with `runtime.FleetUserLatencies`.
+- Lack of pagination support in Gameye's Session API. This prevents us from fully implementing the FleetManager#List querying mechanism.
+- Gameye does not support latency based matchmaking out of the box. This means that this integration does not do anything with `runtime.FleetUserLatencies`.
 - The GameLift integration relies on AWS SQS to queue in-flight requests for game sessions. Gameye currently does not support a Job based system. Sessions are spun up immediately as POST requests resolve. Retries are not implemented yet should Gameye run out of capacity.
 
 ## Usage
