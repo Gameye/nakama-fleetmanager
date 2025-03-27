@@ -1,4 +1,4 @@
-module gitlab.com/gameye/nakama
+module github.com/Gameye/nakama-fleetmanager
 
 go 1.23.5
 

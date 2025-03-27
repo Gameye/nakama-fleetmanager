@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"time"
 
+	gameyeApi "github.com/Gameye/nakama-fleetmanager/pkg/api/generated/openapi/client"
 	"github.com/oapi-codegen/oapi-codegen/v2/pkg/securityprovider"
-	gameyeApi "gitlab.com/gameye/nakama/pkg/api/generated/openapi/client"
 )
 
 var (

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Gameye/nakama-fleetmanager/fleetmanager"
 	"github.com/heroiclabs/nakama-common/runtime"
-	"gitlab.com/gameye/nakama/fleetmanager"
 )
 
 const (

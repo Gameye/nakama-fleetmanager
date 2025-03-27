@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Gameye/nakama-fleetmanager/gameye"
+	gameyeApi "github.com/Gameye/nakama-fleetmanager/pkg/api/generated/openapi/client"
 	"github.com/heroiclabs/nakama-common/runtime"
-	"gitlab.com/gameye/nakama/gameye"
-	gameyeApi "gitlab.com/gameye/nakama/pkg/api/generated/openapi/client"
 )
 
 const (
