@@ -35,6 +35,76 @@ There are some limitations to this integration that the existing GameLift integr
 - Gameye does not support latency based matchmaking. This means that this integration does not do anything with `runtime.FleetUserLatencies`.
 - The GameLift integration relies on AWS SQS to queue in-flight requests for game sessions. Gameye currently does not support a Job based system. Sessions are spun up immediately as POST requests resolve. Retries are not implemented yet should Gameye run out of capacity.
 
+## Usage
+
+Just like with the GameLift integration, the `fleetmanager` instance has to be created within your Nakama plugin's `InitModule` function.
+
+```go
+	config := fleetmanager.GameyeConfig{
+		BaseUrl:  url,
+		ApiToken: token,
+		Image:    image,
+		Version:  version,
+		Region:   region,
+	}
+
+	fleetManager, err := fleetmanager.NewGameyeFleetManager(ctx, config, logger, db, initializer, nk)
+	if err != nil {
+		return err
+	}
+
+	if err = initializer.RegisterFleetManager(fleetManager); err != nil {
+		return err
+	}
+```
+
+### Matchmaking Events
+
+```go
+initializer.RegisterMatchmakerMatched(func(
+    ctx context.Context,
+    logger runtime.Logger,
+    db *sql.DB,
+    nk runtime.NakamaModule,
+    entries []runtime.MatchmakerEntry,
+) (string, error) {
+    var userIds []string
+    for _, entry := range entries {
+        userIds = append(userIds, entry.GetPresence().GetUserId())
+    }
+
+    onResult := func(
+        status runtime.FmCreateStatus,
+        instanceInfo *runtime.InstanceInfo,
+        sessionInfo []*runtime.SessionInfo,
+        metadata map[string]any, err error,
+    ) {
+        switch status {
+        case runtime.CreateSuccess:
+            logger.Info("successfully started session %v", instanceInfo.Id)
+
+            _, err := fleetManager.Join(ctx, instanceInfo.Id, userIds, make(map[string]string))
+            if err != nil {
+                logger.Error(err.Error(), "failed to make players join")
+                return
+            }
+
+            logger.Info("successfully registered players %v to session %v", userIds, instanceInfo.Id)
+
+        case runtime.CreateError:
+            logger.Info("failed to start a session")
+        }
+    }
+
+    err := fleetManager.Create(ctx, len(userIds), userIds, nil, make(map[string]any), onResult)
+    if err != nil {
+        logger.Error(err.Error())
+    }
+
+    return "", nil
+})
+```
+
 ## Development
 
 ```sh
