@@ -1,0 +1,1104 @@
+openapi: 3.0.0
+info:
+  title: Gameye Session API
+  version: 1.2.1
+  description: >
+    The Gameye Session API offers an agnostic way of hosting containerized game
+    sessions without having to worry about geographic capacity or scalability issues. 
+    The API offers a complete suite of features to host a server based multiplayer game.
+
+    # Authentication
+
+    All endpoints of the Gameye Session API require authorization. This is done
+    through Bearer Token Authentication. A bearer token is thus required in the 
+    HTTP header of each request.
+
+    For example:
+    ```Authorization: Bearer <token>```
+
+  x-logo:
+    url: https://static.gameye.com/images/android-chrome-512x512.png
+    altText: Gameye Logo
+
+servers:
+  - url: https://api.gameye.io
+    description: The legacy production environment.
+  - url: https://api.sandbox-gameye.gameye.net
+    description: The main sandbox environment.
+
+security:
+  - api-token: []
+
+paths:
+  /session:
+    post:
+      operationId: session-run
+      description: >
+        Allocate a new game session in a specific region. Each session is to be
+        identified by a unique identifier that is provided by the caller. It is 
+        recommended to use a UUID.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionRun'
+
+      responses:
+        201:
+          description: >
+            A session has successfully been started on a machine in the provided
+            location.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionRunOk'
+        401:
+          description: >
+            You are not authorized to start a session. Please make sure that the
+            included bearer
+
+            token is correct.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        404:
+          description: >
+            The request contains a location, image or organization that does not
+            exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        409:
+          description: >
+            Cannot start a session with the provided id. Please use a unique
+            identifier
+
+            for your session. It is recommended to use a UUID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        420:
+          description: >
+            This session can not be started in the provided location currently.
+            This could also be the result of starting too many sessions in a short period of time. 
+            Please try again later!
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+        422:
+          description: >
+            Bad request. This may imply that the given request has invalid syntax.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      operationId: session-list
+      parameters:
+        - name: all
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: |
+            Whether to return all sessions regardless of status in the response. 
+            The default value for this is 'false', which would only return running sessions.
+
+        - name: location
+          in: query
+          required: false
+          schema:
+            type: string
+          description: |
+            Filter results by location.
+
+        - name: image
+          in: query
+          required: false
+          schema:
+            type: string
+          description: |
+            Filter results by image.
+
+        - name: tag
+          in: query
+          required: false
+          schema:
+            type: string
+          description: |
+            Filter results by tag.
+
+        - name: host
+          in: query
+          required: false
+          schema:
+            type: string
+          description: |
+            Filter results by host IP address.
+
+        - name: playerCount
+          in: query
+          required: false
+          style: deepObject
+          schema:
+            type: object
+            description: >
+              Filter results by player count. The following keys are available:
+              - 'lt': Less than
+              - 'gt': Greater than
+
+              Combined with the 'location' filter above, this would for example
+              allow users to search for specific sessions within a specific region
+              and with less than X amount of players which is good to have for backfill 
+              purposes.
+
+            additionalProperties:
+              type: integer
+
+        - name: filter
+          in: query
+          required: false
+          style: deepObject
+          schema:
+            type: object
+            description: >
+              A list or record of tags to filter a list of sessions on. If none
+              of the sessions meet the provided filter criteria, naturally an empty
+              list of sessions is returned.
+            additionalProperties:
+              type: string
+
+      summary: Lists a collection of active sessions.
+      description: >
+        Lists all of the active sessions that are tied to your API token. Note
+        that it only returns sessions that are active. Those that have already been 
+        stopped, will not be included.
+      responses:
+        200:
+          description: >
+            Successfully looked up all of the active sessions that are tied to
+            your API token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionListOk'
+        401:
+          description: >
+            You are not authorized to fetch a list of active sessions. Please
+            make sure that the included bearer token is correct.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /session/{id}:
+    get:
+      operationId: describe-session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The id of the session.
+      summary: Describes a single session.
+      description: >
+        Describe a single session by ID.
+      responses:
+        200:
+          description: >
+            Successfully looked up the specified session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DescribedSession'
+        401:
+          description: >
+            You are not authorized to describe sessions. Please
+            make sure that the included bearer token is correct.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        404:
+          description: >
+            The specified session does not exist. Please provide a correct
+            session id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      operationId: session-stop
+      description: >
+        Stops an active session from running by killing the underlying
+        container. The container is killed by sending in a SIGTERM signal.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The id of the session.
+      responses:
+        204:
+          description: |
+            The session has successfully been terminated.
+        401:
+          description: |
+            You are not authorized to stop a session. Please make sure that the 
+            included bearer token is correct.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        404:
+          description: >
+            The specified session does not exist. Please provide a correct
+            session id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        409:
+          description: |
+            This session has already been terminated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /session/player/join:
+    put:
+      operationId: join-session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JoinSession'
+
+      responses:
+        200:
+          description: >
+            One or more player IDs have been registered as having
+            joined this session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinSessionOk'
+
+        401:
+          description: >
+            You are not authorized to start a session. Please make sure that the
+            included bearer token is correct.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+                
+        404:
+          description: >
+            The provided session does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    
+        422:
+          description: >
+            Bad request. This may imply that the given request has invalid syntax.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /session/player/leave:
+    delete:
+      operationId: leave-session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeaveSession'
+
+      responses:
+        200:
+          description: >
+            One or more player IDs have been removed from the session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveSessionOk'
+
+        401:
+          description: >
+            You are not authorized to use this endpoint. Please make sure that the
+            included bearer token is correct.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+                
+        404:
+          description: >
+            The provided session does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    
+        422:
+          description: >
+            Bad request. This may imply that the given request has invalid syntax.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /artifacts:
+    get:
+      operationId: artifacts
+      summary: Download an artifact file from the underlying container.
+      description: >
+        Initiates a download of an artifact which could be a file or a folder
+        inside the underlying
+
+        container. The path should be an absolute Unix path to a specific file
+        or folder.
+
+
+        The artifact will be provided in the form of a .tar.gz archive that
+        contains your requested
+
+        file or folder. Please limit your download in size to a maximum of
+        100mb.
+
+
+        Please note that the artifact is only available for download after the
+        session has been
+
+        terminated and will be downloaded directly from the container itself.
+
+
+        The artifacts are available for download from the underlying container
+        up until the 
+
+        container is removed from its host machine. This means that your logs
+        may or 
+
+        may not be available post-termination.
+      parameters:
+        - name: session
+          in: query
+          required: true
+          description: |
+            The id of the session to download an artifact from.
+          schema:
+            type: string
+            minLength: 1
+            example: c595bc6f-8522-4a62-95cd-8742136643ea
+        - name: path
+          in: query
+          required: true
+          description: >
+            The local path inside the container to the target file or folder
+            requested
+
+            for download.
+          schema:
+            type: string
+            minLength: 1
+            example: /home/{user}/{game-folder-name}/crashdump.log
+      responses:
+        200:
+          description: |
+            A download of the artifact in .tar.gz format has been initiated.
+          content:
+            application/x-tar: {}
+        401:
+          description: >
+            You are not authorized to fetch an artifact. Please make sure that
+            the included bearer token is correct.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        404:
+          description: >
+            Could not find a session with the given session id. It is possible
+            that either the session has never existed at all or the container's 
+            lifespan on the machine has expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /available-location/{image}:
+    parameters:
+      - name: image
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The id of the image
+    get:
+      operationId: get-available-locations
+      summary: Get a list of available locations
+      description: >
+        Retrieve all locations that are currently able to host your image.
+        This includes an IPV4 address that you may send ICMP ping messages to, 
+        to figure out the latency to this location. Please do not cache this list 
+        anywhere as it may change.
+      responses:
+        200:
+          description: Ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvailableLocationsOk'
+
+        401:
+          description: |
+            You are not authorized to list available locations. Please make sure that
+            the included bearer token is correct.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+        404:
+          description: |
+            Image not found or you are not authorized to use this image.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /tag/{region}/{image}/{version}:
+    parameters:
+      - name: region
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The name of the region
+      - name: image
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The id of the image
+      - name: version
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The image version otherwise known as the Docker 'tag'.
+    get:
+      operationId: tag-exists
+      summary: Check if tag exists in the Gameye fleet
+      responses:
+        200:
+          description: Ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagOk'
+
+        400:
+          description: |
+            Bad request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+        401:
+          description: |
+            You are not authorized. Please make sure that
+            the included bearer token is correct.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+        404:
+          description: |
+            Image not found or you are not authorized to use this image.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /logs:
+    get:
+      operationId: stream-logs
+      summary: Get logs
+      description: >
+        Streams the output that the game server writes. You can use it to debug server issues.
+
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+            description: >
+              The unique ID of the session you want logs from.
+            minLength: 1
+        - name: follow
+          in: query
+          required: false
+          schema:
+            type: boolean
+            description: >
+              Whether to keep the stream open or to get all available logs up to
+              what the container has written to stdout/stderr so far.
+      responses:
+        200:
+          content:
+            text/plain: {}
+        401:
+          description: >
+            You are not authorized. Make sure your bearer token is correct.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        404:
+          description: |
+            That session doesn't seem to exist. Double-check the ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    api-token:
+      type: http
+      scheme: bearer
+      bearerFormat: token
+
+  schemas:
+    FieldViolation:
+      type: object
+      additionalProperties: false
+      required:
+        - field
+        - description
+      properties:
+        field:
+          type: string
+        description:
+          type: string
+
+    ErrorResponse:
+      type: object
+      required:
+        - statusCode
+        - code
+        - message
+        - details
+        - path
+        - identifier
+        - timestamp
+      properties:
+        statusCode:
+          type: integer
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: string
+        path:
+          type: string
+        timestamp:
+          type: string
+        identifier:
+          type: string
+        violations:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldViolation'
+
+    SessionStatus:
+      type: string
+      x-go-type-skip-optional-pointer: true
+      description: |
+        The current runtime status of the underlying container.
+      enum:
+        - created
+        - running
+        - restarting
+        - exited
+        - dead
+        - draining
+        - shuttingdown
+        - server_unreachable
+
+    SessionRun:
+      type: object
+      additionalProperties: false
+      required:
+        - location
+        - image
+      properties:
+        id:
+          type: string
+          description: |
+            The unique identifier of the session. If undefined, Gameye will generate a UUIDV4
+            for you and return it in the API response.
+          minLength: 1
+          example: f7965a22-e327-4541-a30e-8262890d3a29
+        location:
+          type: string
+          description: >
+            The location or region that the game session is preferred to
+            be hosted in.
+          minLength: 1
+          example: europe
+        image:
+          type: string
+          description: >
+            The name of the image of the game to host inside a
+            container.
+          minLength: 1
+          example: nginx
+        env:
+          type: object
+          description: >
+            The list of environment variables to feed the container on
+            startup.
+          additionalProperties:
+            type: string
+            minLength: 1
+          example:
+            env:
+              my-secret: <some_very_secret_value>
+        args:
+          type: array
+          description: >
+            The list of program console arguments to feed to the
+            application hosted inside the underlying container.
+          items:
+            type: string
+            minLength: 1
+          example:
+            - '--max-players=8'
+            - '--match-type=quick-play'
+        restart:
+          description: >
+            Indicates whether this session must be automatically
+            restarted on failure.
+
+            The underlying container will not be restarted in case of a manual
+            termination.
+          type: boolean
+          example: false
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+          description: >
+            The collection of user-defined key/value metadata stored
+            inside the configuration of the session.
+          x-go-type-skip-optional-pointer: true
+          example:
+            labels:
+              my-example-tag: '1'
+              another-example-tag: '3'
+        version:
+          type: string
+          description: >
+            Tag of the image that the session will be run. This tag
+            needs to be available or a 404 will be thrown. If not specified 
+            run the tag with the highest priority.
+              
+      example:
+        id: f7965a22-e327-4541-a30e-8262890d3a29
+        location: europe
+        image: my-very-special-game
+        env:
+          my-secret: <my_secret_value
+        args:
+          - '--max-players=8'
+        labels:
+          my-example-tag: '1'
+          another-example-tag: '3'
+        restart: false
+
+    SessionRunOk:
+      type: object
+      additionalProperties: false
+      required:
+        - host
+        - ports
+      properties:
+        id:
+          type: string
+          description: |
+            The generated unique session ID.
+        host:
+          type: string
+          description: |
+            The IP address of the machine that the session is running on.
+        ports:
+          type: array
+          description: |
+            The list of mapped ports for this session.
+          items:
+            $ref: '#/components/schemas/Port'
+      example:
+        id: c5c7c507-f5de-443e-b772-af4b444cfc21
+        host: a.b.c.d
+        ports:
+          - type: tcp
+            container: 80
+            host: 49159
+          - type: tcp
+            container: 80
+            host: 49159
+
+    JoinSession:
+      type: object
+      additionalProperties: false
+      required:
+        - session
+        - players
+      properties:
+        session:
+          type: string
+          description: |
+            The ID of the session.
+        players:
+          type: array
+          description: |
+            The list of player ID's to join this session.
+          items:
+            type: string
+
+    JoinSessionOk:
+      type: object
+      additionalProperties: false
+      required:
+        - count
+        - players
+      properties:
+        count:
+          type: integer
+          description: |
+            The total amount of players that are in this session.
+        players:
+          type: array
+          description: |
+            The list of player ID's to join this session.
+          items:
+            type: string
+
+    LeaveSession:
+      type: object
+      additionalProperties: false
+      required:
+        - players
+      properties:
+        players:
+          type: array
+          description: |
+            The list of player ID's to join this session.
+          items:
+            type: string
+
+    LeaveSessionOk:
+      type: object
+      additionalProperties: false
+      required:
+        - count
+        - players
+      properties:
+        count:
+          type: integer
+          description: |
+            The total amount of players that are in this session.
+        players:
+          type: array
+          description: |
+            The list of player ID's to leave this session.
+          items:
+            type: string
+
+    Port:
+      type: object
+      additionalProperties: false
+      required:
+        - type
+        - container
+        - host
+      properties:
+        type:
+          type: string
+          description: |
+            The type of protocol of this port entry.
+          enum:
+            - tcp
+            - udp
+        container:
+          type: integer
+          description: >
+            The port of the container that is hosted on the
+            machine.
+          minimum: 1
+          maximum: 65535
+        host:
+          type: integer
+          description: |
+            The host port for mapping the container port.
+          minimum: 1
+          maximum: 65535
+
+    SessionListOk:
+      type: object
+      additionalProperties: false
+      required:
+        - sessions
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionListEntry'
+            example:
+              sessions:
+                - id: c595bc6f-8522-4a62-95cd-8742136643ea
+                  image: my-very-special-game
+                  location: frankfurt
+                  host: a.b.c.d
+                  created: 1648472895000
+                  port:
+                    80/tcp: 49160
+                  labels:
+                    env: >-
+                      {"GAMEYE_SESSION_ID":"this-is-my-test-session-103","GAMEYE_HOST":"a.b.c.d"}
+                    tags: '{"my-example-tag":"1","another-example-tag":"3"}'
+
+    DescribedSession:
+      type: object
+      required:
+        - id
+        - image
+        - tag
+        - location
+        - host
+        - created
+        - port
+        - status
+        - labels
+        - players
+      properties:
+        id:
+          type: string
+          description: |
+            The unique identifier of the session.
+          example: f7965a22-e327-4541-a30e-8262890d3a29
+          x-order: 1
+        image:
+          type: string
+          description: >
+            The name of the image of the game that is hosted
+            inside the container.
+          example: nginx
+          x-order: 2
+        tag:
+          type: string
+          description: >
+            The build tag of the image the container is derived from.
+          example: latest
+          x-order: 3
+        location:
+          type: string
+          description: >
+            The location or region that the game session is
+            hosted in.
+          example: europe
+          x-order: 4
+        host:
+          type: string
+          description: >
+            The IP address of the host machine the game session
+            is hosted on.
+          example: a.b.c.d
+          x-order: 5
+        created:
+          type: number
+          description: |
+            The unix timestamp the session was created in.
+          example: 1648472895000
+          x-order: 6
+        port:
+          type: object
+          description: |
+            A record of exposed ports for this container.
+          additionalProperties:
+            type: number
+          example:
+            port:
+              80/tcp: 49160
+          x-order: 7
+        status:
+          $ref: '#/components/schemas/SessionStatus'
+          x-order: 8
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+          description: >
+            The collection of user-defined key/value metadata
+            stored inside the configuration of the session.
+          example:
+            labels:
+              env: >-
+                {"GAMEYE_SESSION_ID":"c595bc6f-8522-4a62-95cd-8742136643ea","GAMEYE_HOST":"a.b.c.d"}
+              tags: '{"my-example-tag":"1","another-example-tag":"3"}'
+          x-order: 9
+        players:
+          $ref: '#/components/schemas/DescribedSessionPlayers'
+          x-order: 10
+
+    DescribedSessionPlayers:
+      type: object
+      required:
+      - joined
+      - joinedCount
+      properties:
+        joined:
+          type: array
+          items:
+            type: string
+        joinedCount:
+          type: integer
+
+    SessionListEntry:
+      type: object
+      required:
+        - id
+        - image
+        - location
+        - host
+        - created
+        - port
+      properties:
+        id:
+          type: string
+          description: |
+            The unique identifier of the session.
+          example: f7965a22-e327-4541-a30e-8262890d3a29
+          x-order: 1
+        image:
+          type: string
+          description: >
+            The name of the image of the game that is hosted
+            inside the container.
+          example: nginx
+          x-order: 2
+        tag:
+          type: string
+          description: >
+            The build tag of the image the container is derived from.
+          example: latest
+          x-order: 3
+        location:
+          type: string
+          description: >
+            The location or region that the game session is
+            hosted in.
+          example: europe
+          x-order: 4
+        host:
+          type: string
+          description: >
+            The IP address of the host machine the game session
+            is hosted on.
+          example: a.b.c.d
+          x-order: 5
+        created:
+          type: number
+          description: |
+            The unix timestamp the session was created in.
+          example: 1648472895000
+          x-order: 6
+        port:
+          type: object
+          description: |
+            A record of exposed ports for this container.
+          additionalProperties:
+            type: number
+          example:
+            port:
+              80/tcp: 49160
+          x-order: 7
+        status:
+          $ref: '#/components/schemas/SessionStatus'
+          x-order: 8
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+          description: >
+            The collection of user-defined key/value metadata
+            stored inside the configuration of the session.
+          example:
+            labels:
+              env: >-
+                {"GAMEYE_SESSION_ID":"c595bc6f-8522-4a62-95cd-8742136643ea","GAMEYE_HOST":"a.b.c.d"}
+              tags: '{"my-example-tag":"1","another-example-tag":"3"}'
+          x-order: 9
+        playerCount:
+          type: integer
+          x-order: 10
+
+    AvailableLocationsOk:
+      type: object
+      additionalProperties: false
+      required:
+        - locations
+      properties:
+        locations:
+          type: array
+          items:
+            $ref: '#/components/schemas/AvailableLocationsEntry'
+    
+    AvailableLocationsEntry:
+      type: object
+      required:
+        - id
+        - ips
+      properties:
+        id:
+          type: string
+        ips:
+          type: array
+          items:
+            type: string
+            description: >
+              The list of IPV4 addresses that can be pinged.
+
+    TagOk:
+      type: object
+      required:
+      - exists
+      properties:
+        exists:
+          type: boolean
+
+externalDocs:
+  url: https://docs.gameye.com

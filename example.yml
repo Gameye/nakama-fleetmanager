@@ -1,0 +1,18 @@
+name: nakama-node-1
+data_dir: "./data/"
+
+logger:
+  level: DEBUG
+
+runtime:
+  env:
+  - "GAMEYE_API_URL={URL_HERE}"
+  - "GAMEYE_API_TOKEN={TOKEN_HERE}"
+  - "GAMEYE_API_IMAGE={IMAGE_HERE}"
+  - "GAMEYE_API_IMAGE_VERSION={VERSION_HERE}"
+  - "GAMEYE_API_REGION={REGION_HERE}"
+
+console:
+  port: 7351
+  username: "admin"
+  password: "password"
