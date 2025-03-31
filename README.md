@@ -33,7 +33,7 @@ We recommend taking a look at any of the examples in the [examples](./examples) 
 There are some limitations to this integration that the existing GameLift integration does not have. They are the following:
 - Lack of pagination support in Gameye's Session API. This prevents us from fully implementing the FleetManager#List querying mechanism.
 - Gameye does not support latency based matchmaking out of the box. This means that this integration does not do anything with `runtime.FleetUserLatencies`.
-- The GameLift integration relies on AWS SQS to queue in-flight requests for game sessions. Gameye currently does not support a Job based system. Sessions are spun up immediately as POST requests resolve. Retries are not implemented yet should Gameye run out of capacity.
+- The GameLift integration relies on AWS SQS to queue in-flight requests for game sessions. Gameye currently does not support a job based system. Sessions are spun up immediately as POST requests resolve. Retries are not implemented yet should Gameye run out of capacity.
 
 ## Usage
 
@@ -59,6 +59,8 @@ Just like with the GameLift integration, the `fleetmanager` instance has to be c
 ```
 
 ### Matchmaking Events
+
+When a matchmaker matched event comes in, we can invoke the `FleetManager#Create` method to have a Gameye session started. As we are to provide a list of user id's of the users that are in the matchmaking ticket, we also immediately tell Gameye to associate these users with that session. It is then the responsibility of the game server to make an API call to Gameye to verify that a player is allowed to join. This can be done with the `describe-session` endpoint (see the [OpenAPI specification](./api/openapi/client.yaml)).
 
 ```go
 initializer.RegisterMatchmakerMatched(func(
@@ -104,6 +106,8 @@ initializer.RegisterMatchmakerMatched(func(
     return "", nil
 })
 ```
+
+When players disconnect from the game server, the `leave-session` endpoint should be used to tell Gameye of this event which should include 1 or more player IDs. Gameye also supports a `join-session` endpoint, which can be used to support backfilling. In the Nakama docs, there is an example of how backfilling should be implemented inside the `RegisterMatchmakerMatched` binding. See [Example: Finding/Creating a Game Session via Nakama Matchmaking](https://heroiclabs.com/docs/nakama/guides/concepts/gamelift-integration/#example-findingcreating-a-game-session-via-nakama-matchmaking).
 
 ## Development
 
