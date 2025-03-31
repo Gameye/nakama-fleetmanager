@@ -24,7 +24,8 @@ services:
 
   nakama:
     container_name: nakama
-    build: .
+    build:
+      dockerfile: Dockerfile.example
     depends_on:
       - postgres
     entrypoint:
