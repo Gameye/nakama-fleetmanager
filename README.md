@@ -28,6 +28,20 @@ go get github.com/Gameye/nakama-fleetmanager/fleetmanager
 
 We recommend taking a look at any of the examples in the [examples](./examples) directory.
 
+## Quickstart
+
+You can clone this project to get started:
+
+```sh
+https://github.com/Gameye/nakama-fleetmanager.git
+```
+
+Afterwards, simply run the following Docker commands to get it up and running:
+
+```sh
+docker compose build && docker compose up -d
+```
+
 ## Limitations
 
 There are some limitations to this integration that the existing GameLift integration does not have. They are the following:
@@ -108,20 +122,6 @@ initializer.RegisterMatchmakerMatched(func(
 ```
 
 When players disconnect from the game server, the `leave-session` endpoint should be used to tell Gameye of this event which should include 1 or more player IDs. Gameye also supports a `join-session` endpoint, which can be used to support backfilling. In the Nakama docs, there is an example of how backfilling should be implemented inside the `RegisterMatchmakerMatched` binding. See [Example: Finding/Creating a Game Session via Nakama Matchmaking](https://heroiclabs.com/docs/nakama/guides/concepts/gamelift-integration/#example-findingcreating-a-game-session-via-nakama-matchmaking).
-
-## Quickstart
-
-You can clone this project to get started:
-
-```sh
-https://github.com/Gameye/nakama-fleetmanager.git
-```
-
-Afterwards, simply run the following Docker commands to get it up and running:
-
-```sh
-docker compose build && docker compose up -d
-```
 
 ## Development
 
