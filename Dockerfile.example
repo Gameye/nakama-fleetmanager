@@ -6,7 +6,7 @@ ENV CGO_ENABLED 1
 WORKDIR /backend
 COPY . .
 
-RUN go build --trimpath --buildmode=plugin -o ./backend.so
+RUN go build --trimpath --buildmode=plugin -o ./backend.so examples/main/main.go
 
 FROM heroiclabs/nakama:3.26.0
 
