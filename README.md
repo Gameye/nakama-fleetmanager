@@ -16,7 +16,7 @@ As of the time of this writing, Gameye is not yet a full self-servicing platform
 - Gameye image name (Also known as a Gameye application)
 - Gameye region (Also known as a Gameye location)
 
-You must also have already published a game server build to one of the image registries Gameye pulls images from. The associated build version number is also required in the configuration.
+You must also have already published a game server build to one of the image registries Gameye pulls images from. The associated build version number is also required in the configuration. See [example.yml](./examples/main/example.yml) for the full list of required environment variables.
 
 ## Installation
 
