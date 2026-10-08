@@ -8,7 +8,7 @@ logger:
 
 runtime:
   env:
-    - "GAMEYE_API_URL=https://api.production-gameye.gameye.net"
+    - "GAMEYE_API_URL=https://api.sandbox-gameye.gameye.net"
     - "GAMEYE_API_TOKEN=replace-with-your-api-token"
     - "GAMEYE_API_IMAGE=replace-with-your-application"
     - "GAMEYE_API_IMAGE_VERSION=replace-with-your-image-tag"

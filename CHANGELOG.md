@@ -17,7 +17,7 @@ First tagged release. Requires Nakama 3.39.0 or later.
 ### Added
 
 - `Create` runs the Gameye call on a context detached from the matchmaker hook, which Nakama cancels when the hook returns, bounded by `GameyeConfig.CreateTimeout` (default 60s). On expiry the callback gets `runtime.CreateTimeout` and the session is stopped.
-- An empty `GameyeConfig.BaseUrl` now means the production Session API, `https://api.production-gameye.gameye.net`.
+- An empty `GameyeConfig.BaseUrl` now means the self-serve Session API, `https://api.sandbox-gameye.gameye.net` (production contracts set `https://api.production-gameye.gameye.net`).
 - `GameyeConfig.Ttl` (default `30m`), `Port`, `CreateTimeout`, `ReapInterval` and `Env`.
 - Env pass-through: `metadata["gameye.env"]` (merged over `GameyeConfig.Env`) is sent as container env and never as labels, instance metadata or Nakama storage.
 - `metadata["gameye.external_id"]` sets the session's external id.

@@ -17,8 +17,9 @@ import (
 	"github.com/oapi-codegen/oapi-codegen/v2/pkg/securityprovider"
 )
 
-// DefaultBaseUrl is Gameye's production Session API.
-const DefaultBaseUrl = "https://api.production-gameye.gameye.net"
+// DefaultBaseUrl is Gameye's self-serve Session API, where trial accounts
+// live. Production contracts use https://api.production-gameye.gameye.net.
+const DefaultBaseUrl = "https://api.sandbox-gameye.gameye.net"
 
 // StatusNoCapacity is the non-standard status Gameye returns when a region has
 // no capacity left for the requested session.

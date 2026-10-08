@@ -48,7 +48,7 @@ go mod vendor
 
 | Field | `runtime.env` key (example) | Required | Default | Description |
 |---|---|---|---|---|
-| `BaseUrl` | `GAMEYE_API_URL` | No | `https://api.production-gameye.gameye.net` | Session API base URL. |
+| `BaseUrl` | `GAMEYE_API_URL` | No | `https://api.sandbox-gameye.gameye.net` | Session API base URL. The default is Gameye's self-serve platform, where trial accounts live. Teams on a dedicated production contract use `https://api.production-gameye.gameye.net`. |
 | `ApiToken` | `GAMEYE_API_TOKEN` | Yes | | API token with the scopes listed above. |
 | `Image` | `GAMEYE_API_IMAGE` | Yes | | Gameye application name. |
 | `Version` | `GAMEYE_API_IMAGE_VERSION` | Yes | | Image tag to run. |

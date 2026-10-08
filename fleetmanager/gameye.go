@@ -75,7 +75,7 @@ var (
 
 type GameyeConfig struct {
 	// BaseUrl of the Gameye Session API. Empty means
-	// https://api.production-gameye.gameye.net (gameye.DefaultBaseUrl).
+	// https://api.sandbox-gameye.gameye.net (gameye.DefaultBaseUrl).
 	BaseUrl  string
 	ApiToken string
 	Region   string
