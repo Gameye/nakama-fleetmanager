@@ -1,0 +1,25 @@
+# Nakama config for the example plugin. Replace the placeholders with your
+# Gameye details; see the README's Configuration section.
+name: nakama-node-1
+data_dir: "./data/"
+
+logger:
+  level: INFO
+
+runtime:
+  env:
+    - "GAMEYE_API_URL=https://api.production-gameye.gameye.net"
+    - "GAMEYE_API_TOKEN=replace-with-your-api-token"
+    - "GAMEYE_API_IMAGE=replace-with-your-application"
+    - "GAMEYE_API_IMAGE_VERSION=replace-with-your-image-tag"
+    - "GAMEYE_API_REGION=replace-with-a-region"
+    # Optional: maximum session lifetime (default 30m).
+    - "GAMEYE_API_TTL=30m"
+    # Optional: the container port players connect to, e.g. 7777/udp.
+    # Required when the image exposes more than one port.
+    # - "GAMEYE_API_PORT=7777/udp"
+
+console:
+  port: 7351
+  username: "admin"
+  password: "password"

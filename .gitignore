@@ -1,2 +1,3 @@
 .cookie
-local.ymlexamples/main/vendor/
+/local.yml
+examples/main/vendor/
