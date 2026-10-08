@@ -38,6 +38,11 @@ const (
 	// is stripped from instance metadata and rejected as a Create metadata key.
 	labelKeyEnv = "env"
 
+	// labelKeyTags holds the caller's labels as a JSON object and
+	// labelKeyGameye holds platform data, in labels returned by Gameye.
+	labelKeyTags   = "tags"
+	labelKeyGameye = "gameye"
+
 	// DefaultTtl is the session lifetime used when GameyeConfig.Ttl is empty.
 	// Gameye force-stops a session when its TTL expires.
 	DefaultTtl = "30m"
@@ -384,12 +389,26 @@ func mergeEnv(base, override map[string]string) map[string]string {
 	return env
 }
 
-// metadataFromLabels converts session labels to instance metadata, dropping
-// the "env" label in which Gameye may echo the container env.
+// metadataFromLabels converts session labels to instance metadata. Gameye
+// returns the labels a session was started with as a JSON object under
+// "tags", next to "env" (the container env) and "gameye" (platform data),
+// which are never metadata. Flat labels are accepted for older responses.
 func metadataFromLabels(labels map[string]string) map[string]any {
+	if tags, ok := labels[labelKeyTags]; ok {
+		var parsed map[string]string
+		if err := json.Unmarshal([]byte(tags), &parsed); err != nil || len(parsed) == 0 {
+			return nil
+		}
+		metadata := make(map[string]any, len(parsed))
+		for key, value := range parsed {
+			metadata[key] = value
+		}
+		return metadata
+	}
+
 	var metadata map[string]any
 	for key, value := range labels {
-		if key == labelKeyEnv {
+		if key == labelKeyEnv || key == labelKeyGameye {
 			continue
 		}
 		if metadata == nil {

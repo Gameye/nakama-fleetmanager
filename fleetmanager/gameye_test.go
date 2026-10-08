@@ -872,3 +872,25 @@ func TestCreateJoinFailureStopsSession(t *testing.T) {
 		t.Fatalf("session must not be stored")
 	}
 }
+
+// Gameye returns labels as observed on the self-serve API (2026-10-08): the
+// caller's labels nested as a JSON string under "tags", the container env
+// under "env" and platform data under "gameye".
+func TestMetadataFromObservedLabelShape(t *testing.T) {
+	labels := map[string]string{
+		"env":    `{"SEAT_SECRET":"` + secret + `","GAMEYE_REGION":"eu-central-1"}`,
+		"gameye": `{"gameye.io/organization":"acme"}`,
+		"tags":   `{"mode":"duel","map":"scrapyard"}`,
+	}
+	got := metadataFromLabels(labels)
+	if len(got) != 2 || got["mode"] != "duel" || got["map"] != "scrapyard" {
+		t.Fatalf("metadata = %v, want only the caller's labels", got)
+	}
+}
+
+func TestMetadataFromLabelsWithMalformedTags(t *testing.T) {
+	got := metadataFromLabels(map[string]string{"tags": "not json", "gameye": "{}", "env": "{}"})
+	if len(got) != 0 {
+		t.Fatalf("metadata = %v, want empty", got)
+	}
+}
