@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: vet, test, module drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test -race -count=1 ./...
+
+      - name: go.mod, go.sum and vendor/ are up to date
+        run: |
+          go mod tidy
+          go mod vendor
+          git diff --exit-code
+          test -z "$(git status --porcelain)" || { git status --porcelain; exit 1; }
+
+      - name: examples/main go.mod and go.sum are up to date
+        working-directory: examples/main
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+  plugin:
+    name: plugin build (Nakama ${{ matrix.nakama }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.39.0 is the oldest Nakama with the current fleet manager interface;
+        # 3.41.0 is the version examples/main pins.
+        nakama: ["3.39.0", "3.41.0"]
+    container:
+      image: heroiclabs/nakama-pluginbuilder:${{ matrix.nakama }}
+    env:
+      # The checkout belongs to another user inside the container.
+      GOFLAGS: -buildvcs=false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Build the library and a plugin that registers it
+        if: matrix.nakama == '3.39.0'
+        run: |
+          go build --trimpath --mod=vendor ./...
+          mkdir -p plugincheck
+          cat > plugincheck/main.go <<'GO'
+          package main
+
+          import (
+          	"context"
+          	"database/sql"
+
+          	"github.com/Gameye/nakama-fleetmanager/fleetmanager"
+          	"github.com/heroiclabs/nakama-common/runtime"
+          )
+
+          var _ runtime.FleetManagerInitializer = (*fleetmanager.GameyeFleetManager)(nil)
+
+          func InitModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, initializer runtime.Initializer) error {
+          	fm, err := fleetmanager.NewGameyeFleetManager(ctx, fleetmanager.GameyeConfig{}, logger, db, initializer, nk)
+          	if err != nil {
+          		return err
+          	}
+          	return initializer.RegisterFleetManager(fm)
+          }
+          GO
+          go build --trimpath --mod=vendor --buildmode=plugin -o plugincheck.so ./plugincheck
+
+      - name: Build examples/main as a plugin
+        if: matrix.nakama == '3.41.0'
+        working-directory: examples/main
+        run: |
+          go mod vendor
+          go build --trimpath --mod=vendor --buildmode=plugin -o backend.so .

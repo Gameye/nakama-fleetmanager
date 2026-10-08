@@ -198,6 +198,9 @@ type SessionListEntry struct {
 	// Ports maps "<container>/<protocol>" to the host port. Use HostPort to
 	// select one.
 	Ports map[string]int
+	// Labels are the session's labels as Gameye reports them. Gameye may
+	// include the container env under the "env" key.
+	Labels map[string]string
 }
 
 type SessionDescribe struct {
@@ -213,6 +216,9 @@ type Session struct {
 	// Ports maps "<container>/<protocol>" to the host port. Use HostPort to
 	// select one.
 	Ports map[string]int
+	// Labels are the session's labels as Gameye reports them. Gameye may
+	// include the container env under the "env" key.
+	Labels map[string]string
 }
 
 type SessionJoin struct {
@@ -367,6 +373,10 @@ func (d *defaultApiClient) SessionList(ctx context.Context, req SessionList) ([]
 		if session.PlayerCount != nil {
 			playerCount = *session.PlayerCount
 		}
+		var labels map[string]string
+		if session.Labels != nil {
+			labels = *session.Labels
+		}
 
 		sessions = append(sessions, SessionListEntry{
 			ID:          session.Id,
@@ -375,6 +385,7 @@ func (d *defaultApiClient) SessionList(ctx context.Context, req SessionList) ([]
 			Status:      string(session.Status),
 			IPV4Address: session.Host,
 			Ports:       portMap(session.Port),
+			Labels:      labels,
 		})
 	}
 
@@ -409,6 +420,7 @@ func (d *defaultApiClient) SessionDescribe(ctx context.Context, req SessionDescr
 		Status:      ok.Status,
 		IPV4Address: ok.Host,
 		Ports:       portMap(ok.Port),
+		Labels:      ok.Labels,
 	}, nil
 }
 

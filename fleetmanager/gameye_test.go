@@ -4,217 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"sync"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Gameye/nakama-fleetmanager/gameye"
-	"github.com/heroiclabs/nakama-common/api"
+	gameyeApi "github.com/Gameye/nakama-fleetmanager/pkg/api/generated/openapi/client"
 	"github.com/heroiclabs/nakama-common/runtime"
 )
-
-// --- fakes -----------------------------------------------------------------
-
-type fakeApi struct {
-	mu      sync.Mutex
-	runs    []gameye.SessionRun
-	stops   []string
-	runFn   func(ctx context.Context, req gameye.SessionRun) (*gameye.SessionStarted, error)
-	listFn  func(ctx context.Context, req gameye.SessionList) ([]gameye.SessionListEntry, error)
-	descFn  func(ctx context.Context, req gameye.SessionDescribe) (*gameye.Session, error)
-	stopped chan string
-}
-
-func newFakeApi() *fakeApi {
-	return &fakeApi{stopped: make(chan string, 10)}
-}
-
-func (f *fakeApi) SessionRun(ctx context.Context, req gameye.SessionRun) (*gameye.SessionStarted, error) {
-	f.mu.Lock()
-	f.runs = append(f.runs, req)
-	f.mu.Unlock()
-	if f.runFn != nil {
-		return f.runFn(ctx, req)
-	}
-	return &gameye.SessionStarted{ID: req.ID, Host: "1.2.3.4", Ports: []gameye.Port{{Type: "tcp", Container: 7360, Host: 21000}}}, nil
-}
-
-func (f *fakeApi) SessionStop(ctx context.Context, req gameye.SessionStop) error {
-	f.mu.Lock()
-	f.stops = append(f.stops, req.ID)
-	f.mu.Unlock()
-	f.stopped <- req.ID
-	return nil
-}
-
-func (f *fakeApi) SessionList(ctx context.Context, req gameye.SessionList) ([]gameye.SessionListEntry, error) {
-	return f.listFn(ctx, req)
-}
-
-func (f *fakeApi) SessionDescribe(ctx context.Context, req gameye.SessionDescribe) (*gameye.Session, error) {
-	return f.descFn(ctx, req)
-}
-
-func (f *fakeApi) SessionJoin(ctx context.Context, req gameye.SessionJoin) ([]string, error) {
-	return req.PlayerIDs, nil
-}
-
-func (f *fakeApi) lastRun(t *testing.T) gameye.SessionRun {
-	t.Helper()
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if len(f.runs) == 0 {
-		t.Fatalf("SessionRun was not called")
-	}
-	return f.runs[len(f.runs)-1]
-}
-
-type callbackResult struct {
-	id       string
-	status   runtime.FmCreateStatus
-	instance *runtime.InstanceInfo
-	sessions []*runtime.SessionInfo
-	err      error
-}
-
-type fakeCallbackHandler struct {
-	mu        sync.Mutex
-	next      int
-	callbacks map[string]runtime.FmCreateCallbackFn
-	results   chan callbackResult
-}
-
-func newFakeCallbackHandler() *fakeCallbackHandler {
-	return &fakeCallbackHandler{callbacks: map[string]runtime.FmCreateCallbackFn{}, results: make(chan callbackResult, 10)}
-}
-
-func (h *fakeCallbackHandler) GenerateCallbackId() string {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.next++
-	return "session-" + string(rune('0'+h.next))
-}
-
-func (h *fakeCallbackHandler) SetCallback(id string, fn runtime.FmCreateCallbackFn) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.callbacks[id] = fn
-}
-
-func (h *fakeCallbackHandler) InvokeCallback(id string, status runtime.FmCreateStatus, instanceInfo *runtime.InstanceInfo, sessionInfo []*runtime.SessionInfo, metadata map[string]any, err error) {
-	h.mu.Lock()
-	fn := h.callbacks[id]
-	delete(h.callbacks, id)
-	h.mu.Unlock()
-	if fn != nil {
-		fn(status, instanceInfo, sessionInfo, metadata, err)
-	}
-	h.results <- callbackResult{id: id, status: status, instance: instanceInfo, sessions: sessionInfo, err: err}
-}
-
-func (h *fakeCallbackHandler) wait(t *testing.T) callbackResult {
-	t.Helper()
-	select {
-	case r := <-h.results:
-		return r
-	case <-time.After(5 * time.Second):
-		t.Fatalf("callback was not invoked")
-		return callbackResult{}
-	}
-}
-
-// fakeNk implements only the storage calls the fleet manager uses; any other
-// NakamaModule call panics on the nil embedded interface.
-type fakeNk struct {
-	runtime.NakamaModule
-	mu       sync.Mutex
-	objects  map[string]string
-	ctxErrs  []error
-	writeErr error
-}
-
-func newFakeNk() *fakeNk { return &fakeNk{objects: map[string]string{}} }
-
-func (n *fakeNk) StorageWrite(ctx context.Context, writes []*runtime.StorageWrite) ([]*api.StorageObjectAck, error) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	if err := ctx.Err(); err != nil {
-		n.ctxErrs = append(n.ctxErrs, err)
-		return nil, err
-	}
-	for _, w := range writes {
-		n.objects[w.Key] = w.Value
-	}
-	return nil, n.writeErr
-}
-
-func (n *fakeNk) StorageRead(ctx context.Context, reads []*runtime.StorageRead) ([]*api.StorageObject, error) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	var out []*api.StorageObject
-	for _, r := range reads {
-		if v, ok := n.objects[r.Key]; ok {
-			out = append(out, &api.StorageObject{Collection: r.Collection, Key: r.Key, Value: v})
-		}
-	}
-	return out, nil
-}
-
-func (n *fakeNk) StorageDelete(ctx context.Context, deletes []*runtime.StorageDelete) error {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	for _, d := range deletes {
-		delete(n.objects, d.Key)
-	}
-	return nil
-}
-
-func (n *fakeNk) stored(t *testing.T, id string) *runtime.InstanceInfo {
-	t.Helper()
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	v, ok := n.objects[id]
-	if !ok {
-		return nil
-	}
-	var i runtime.InstanceInfo
-	if err := json.Unmarshal([]byte(v), &i); err != nil {
-		t.Fatalf("stored value not json: %v", err)
-	}
-	return &i
-}
-
-type nopLogger struct{ runtime.Logger }
-
-func (nopLogger) Debug(string, ...interface{}) {}
-func (nopLogger) Info(string, ...interface{})  {}
-func (nopLogger) Warn(string, ...interface{})  {}
-func (nopLogger) Error(string, ...interface{}) {}
-
-func testConfig() GameyeConfig {
-	return GameyeConfig{
-		BaseUrl:  "http://unused",
-		ApiToken: "token",
-		Region:   "europe",
-		Image:    "my-game",
-		Version:  "1.0.0",
-	}
-}
-
-func newTestFleetManager(t *testing.T, cfg GameyeConfig, apiClient gameye.ApiClient) (*GameyeFleetManager, *fakeNk, *fakeCallbackHandler) {
-	t.Helper()
-	cfg = cfg.withDefaults()
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("invalid test config: %v", err)
-	}
-	nk := newFakeNk()
-	handler := newFakeCallbackHandler()
-	fm := &GameyeFleetManager{config: cfg, logger: nopLogger{}, apiClient: apiClient}
-	if err := fm.Init(nk, handler); err != nil {
-		t.Fatalf("Init: %v", err)
-	}
-	return fm, nk, handler
-}
 
 // --- Create ----------------------------------------------------------------
 
@@ -252,7 +49,7 @@ func TestCreateSurvivesCallerContextCancellation(t *testing.T) {
 		}
 		return &gameye.SessionStarted{ID: req.ID, Host: "1.2.3.4", Ports: []gameye.Port{{Type: "tcp", Container: 7360, Host: 21000}}}, nil
 	}
-	fm, nk, handler := newTestFleetManager(t, testConfig(), fapi)
+	fm, store, handler := newTestFleetManager(t, testConfig(), fapi)
 
 	// Nakama 3.39+ cancels the MatchmakerMatched context when the hook returns.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -267,8 +64,8 @@ func TestCreateSurvivesCallerContextCancellation(t *testing.T) {
 	if res.status != runtime.CreateSuccess {
 		t.Fatalf("status = %v, err = %v; want CreateSuccess", res.status, res.err)
 	}
-	if nk.stored(t, out[CreateSessionIdKey]) == nil {
-		t.Fatalf("instance was not written to storage (ctx errors: %v)", nk.ctxErrs)
+	if store.stored(t, out[CreateSessionIdKey]) == nil {
+		t.Fatalf("instance was not written to storage (ctx errors: %v)", store.ctxErrs)
 	}
 }
 
@@ -280,7 +77,7 @@ func TestCreateTimesOut(t *testing.T) {
 	}
 	cfg := testConfig()
 	cfg.CreateTimeout = 50 * time.Millisecond
-	fm, nk, handler := newTestFleetManager(t, cfg, fapi)
+	fm, store, handler := newTestFleetManager(t, cfg, fapi)
 
 	start := time.Now()
 	out, err := fm.Create(context.Background(), 2, nil, nil, nil, nil)
@@ -307,7 +104,7 @@ func TestCreateTimesOut(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatalf("timed-out session was not stopped")
 	}
-	if nk.stored(t, out[CreateSessionIdKey]) != nil {
+	if store.stored(t, out[CreateSessionIdKey]) != nil {
 		t.Fatalf("timed-out session must not be stored")
 	}
 }
@@ -317,7 +114,7 @@ func TestCreateUsesRequestedIdWhenResponseHasNone(t *testing.T) {
 	fapi.runFn = func(ctx context.Context, req gameye.SessionRun) (*gameye.SessionStarted, error) {
 		return &gameye.SessionStarted{Host: "1.2.3.4", Ports: []gameye.Port{{Type: "tcp", Container: 7360, Host: 21000}}}, nil
 	}
-	fm, nk, handler := newTestFleetManager(t, testConfig(), fapi)
+	fm, store, handler := newTestFleetManager(t, testConfig(), fapi)
 
 	out, err := fm.Create(context.Background(), 2, nil, nil, nil, nil)
 	if err != nil {
@@ -330,7 +127,7 @@ func TestCreateUsesRequestedIdWhenResponseHasNone(t *testing.T) {
 	if res.instance.Id != out[CreateSessionIdKey] {
 		t.Fatalf("instance id = %q, want requested %q", res.instance.Id, out[CreateSessionIdKey])
 	}
-	if nk.stored(t, out[CreateSessionIdKey]) == nil {
+	if store.stored(t, out[CreateSessionIdKey]) == nil {
 		t.Fatalf("instance not stored under the requested id")
 	}
 }
@@ -419,7 +216,7 @@ func TestCreateMissingConfiguredPortStopsSession(t *testing.T) {
 	fapi := newFakeApi()
 	cfg := testConfig()
 	cfg.Port = "7777/udp"
-	fm, nk, handler := newTestFleetManager(t, cfg, fapi)
+	fm, store, handler := newTestFleetManager(t, cfg, fapi)
 
 	out, err := fm.Create(context.Background(), 2, nil, nil, nil, nil)
 	if err != nil {
@@ -437,7 +234,7 @@ func TestCreateMissingConfiguredPortStopsSession(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatalf("session without the configured port was not stopped")
 	}
-	if nk.stored(t, out[CreateSessionIdKey]) != nil {
+	if store.stored(t, out[CreateSessionIdKey]) != nil {
 		t.Fatalf("session must not be stored")
 	}
 }
@@ -524,5 +321,554 @@ func TestConfigDefaultsAndValidation(t *testing.T) {
 		if err := good.Validate(); err != nil {
 			t.Errorf("ttl %q rejected: %v", ok, err)
 		}
+	}
+}
+
+// --- Get -------------------------------------------------------------------
+
+func describeAs(status gameyeApi.SessionStatus) func(ctx context.Context, req gameye.SessionDescribe) (*gameye.Session, error) {
+	return func(ctx context.Context, req gameye.SessionDescribe) (*gameye.Session, error) {
+		return &gameye.Session{
+			ID:          req.ID,
+			Created:     time.UnixMilli(1_700_000_000_000),
+			PlayerCount: 3,
+			Status:      status,
+			IPV4Address: "1.2.3.4",
+			Ports:       map[string]int{"7360/tcp": 21000},
+		}, nil
+	}
+}
+
+func TestGetRunningSessionWritesStorage(t *testing.T) {
+	for _, status := range []gameyeApi.SessionStatus{gameyeApi.Running, gameyeApi.Draining, gameyeApi.Shuttingdown} {
+		t.Run(string(status), func(t *testing.T) {
+			fapi := newFakeApi()
+			fapi.descFn = describeAs(status)
+			fm, store, _ := newTestFleetManager(t, testConfig(), fapi)
+
+			inst, err := fm.Get(context.Background(), "a")
+			if err != nil {
+				t.Fatalf("Get: %v", err)
+			}
+			if inst.Id != "a" || inst.PlayerCount != 3 || inst.Status != string(status) ||
+				inst.ConnectionInfo.IpAddress != "1.2.3.4" || inst.ConnectionInfo.Port != 21000 {
+				t.Fatalf("unexpected instance %+v %+v", inst, inst.ConnectionInfo)
+			}
+			got := store.stored(t, "a")
+			if got == nil || got.PlayerCount != 3 || got.Status != string(status) {
+				t.Fatalf("stored = %+v, want the described instance", got)
+			}
+		})
+	}
+}
+
+func TestGetStoppedSessionDeletesStorage(t *testing.T) {
+	for _, status := range []gameyeApi.SessionStatus{gameyeApi.Exited, gameyeApi.Dead} {
+		t.Run(string(status), func(t *testing.T) {
+			fapi := newFakeApi()
+			fapi.descFn = describeAs(status)
+			fm, store, _ := newTestFleetManager(t, testConfig(), fapi)
+			store.put(t, &runtime.InstanceInfo{Id: "a", Status: "running"})
+
+			inst, err := fm.Get(context.Background(), "a")
+			if err != nil {
+				t.Fatalf("Get: %v", err)
+			}
+			if inst.Status != string(status) {
+				t.Fatalf("status = %q", inst.Status)
+			}
+			if store.stored(t, "a") != nil {
+				t.Fatalf("stopped session must be removed from storage")
+			}
+		})
+	}
+}
+
+func TestGetUnknownSessionDeletesStorageAndWrapsNotFound(t *testing.T) {
+	fapi := newFakeApi()
+	fapi.descFn = func(ctx context.Context, req gameye.SessionDescribe) (*gameye.Session, error) {
+		return nil, &gameye.ApiError{StatusCode: 404}
+	}
+	fm, store, _ := newTestFleetManager(t, testConfig(), fapi)
+	store.put(t, &runtime.InstanceInfo{Id: "gone", Status: "running"})
+
+	_, err := fm.Get(context.Background(), "gone")
+	if !errors.Is(err, gameye.ErrNotFound) {
+		t.Fatalf("err = %v, want one wrapping gameye.ErrNotFound", err)
+	}
+	if store.stored(t, "gone") != nil {
+		t.Fatalf("a session Gameye no longer has must be removed from storage")
+	}
+}
+
+func TestGetOtherApiErrorKeepsStorage(t *testing.T) {
+	fapi := newFakeApi()
+	fapi.descFn = func(ctx context.Context, req gameye.SessionDescribe) (*gameye.Session, error) {
+		return nil, &gameye.ApiError{StatusCode: 503}
+	}
+	fm, store, _ := newTestFleetManager(t, testConfig(), fapi)
+	store.put(t, &runtime.InstanceInfo{Id: "a", Status: "running"})
+
+	if _, err := fm.Get(context.Background(), "a"); !errors.Is(err, gameye.ErrInternalServer) {
+		t.Fatalf("err = %v, want one wrapping ErrInternalServer", err)
+	}
+	if store.stored(t, "a") == nil {
+		t.Fatalf("a transient error must not drop the stored instance")
+	}
+}
+
+// --- Delete ----------------------------------------------------------------
+
+func TestDeleteStopsSessionAndRemovesStorage(t *testing.T) {
+	fapi := newFakeApi()
+	fm, store, _ := newTestFleetManager(t, testConfig(), fapi)
+	store.put(t, &runtime.InstanceInfo{Id: "a", Status: "running"})
+
+	if err := fm.Delete(context.Background(), "a"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if got := fapi.stopCalls(); len(got) != 1 || got[0] != "a" {
+		t.Fatalf("stops = %v, want [a]", got)
+	}
+	if store.stored(t, "a") != nil {
+		t.Fatalf("storage row not removed")
+	}
+}
+
+// The ApiClient reports an already-stopped session (404/409) as success, so
+// Delete still clears storage.
+func TestDeleteAlreadyGoneSucceeds(t *testing.T) {
+	fapi := newFakeApi()
+	fm, store, _ := newTestFleetManager(t, testConfig(), fapi)
+
+	if err := fm.Delete(context.Background(), "never-stored"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if len(store.deleted) != 1 || store.deleted[0] != "never-stored" {
+		t.Fatalf("deleted = %v", store.deleted)
+	}
+}
+
+func TestDeleteStopErrorKeepsStorage(t *testing.T) {
+	fapi := newFakeApi()
+	fapi.stopErr = &gameye.ApiError{StatusCode: 403}
+	fm, store, _ := newTestFleetManager(t, testConfig(), fapi)
+	store.put(t, &runtime.InstanceInfo{Id: "a", Status: "running"})
+
+	if err := fm.Delete(context.Background(), "a"); !errors.Is(err, gameye.ErrForbidden) {
+		t.Fatalf("err = %v, want ErrForbidden", err)
+	}
+	if store.stored(t, "a") == nil {
+		t.Fatalf("storage must be kept when the session could not be stopped")
+	}
+}
+
+// --- Join ------------------------------------------------------------------
+
+func TestJoinUsesStoredInstance(t *testing.T) {
+	fapi := newFakeApi()
+	fapi.descFn = func(ctx context.Context, req gameye.SessionDescribe) (*gameye.Session, error) {
+		t.Errorf("Join must not describe a stored session")
+		return nil, errors.New("unexpected")
+	}
+	fm, store, _ := newTestFleetManager(t, testConfig(), fapi)
+	store.put(t, &runtime.InstanceInfo{Id: "a", Status: "running", ConnectionInfo: &runtime.ConnectionInfo{IpAddress: "1.2.3.4", Port: 21000}})
+
+	info, err := fm.Join(context.Background(), "a", []string{"u1", "u2"}, nil)
+	if err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	joins := fapi.joinCalls()
+	if len(joins) != 1 || joins[0].ID != "a" || len(joins[0].PlayerIDs) != 2 {
+		t.Fatalf("joins = %+v", joins)
+	}
+	if info.InstanceInfo.Id != "a" || info.InstanceInfo.PlayerCount != 2 || info.InstanceInfo.ConnectionInfo.Port != 21000 {
+		t.Fatalf("instance = %+v", info.InstanceInfo)
+	}
+	if len(info.SessionInfo) != 2 || info.SessionInfo[0].UserId != "u1" || info.SessionInfo[1].UserId != "u2" || info.SessionInfo[0].SessionId != "a" {
+		t.Fatalf("session info = %+v %+v", info.SessionInfo[0], info.SessionInfo[1])
+	}
+	if got := store.stored(t, "a"); got.PlayerCount != 2 {
+		t.Fatalf("stored player count = %d, want 2", got.PlayerCount)
+	}
+}
+
+func TestJoinFallsBackToGet(t *testing.T) {
+	fapi := newFakeApi()
+	fapi.descFn = describeAs(gameyeApi.Running)
+	fapi.joinFn = func(ctx context.Context, req gameye.SessionJoin) ([]string, error) {
+		return []string{"u0", "u1", "u2", "u3"}, nil // players already in the session plus the new one
+	}
+	fm, store, _ := newTestFleetManager(t, testConfig(), fapi)
+
+	info, err := fm.Join(context.Background(), "a", []string{"u3"}, nil)
+	if err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if len(fapi.describes) != 1 {
+		t.Fatalf("describes = %v, want one fallback Get", fapi.describes)
+	}
+	if info.InstanceInfo.PlayerCount != 4 {
+		t.Fatalf("player count = %d, want 4", info.InstanceInfo.PlayerCount)
+	}
+	if got := store.stored(t, "a"); got == nil || got.PlayerCount != 4 {
+		t.Fatalf("stored = %+v, want player count 4", got)
+	}
+}
+
+func TestJoinApiErrorIsWrapped(t *testing.T) {
+	fapi := newFakeApi()
+	fapi.joinFn = func(ctx context.Context, req gameye.SessionJoin) ([]string, error) {
+		return nil, &gameye.ApiError{StatusCode: 404}
+	}
+	fm, store, _ := newTestFleetManager(t, testConfig(), fapi)
+	store.put(t, &runtime.InstanceInfo{Id: "a", Status: "running", PlayerCount: 1})
+
+	if _, err := fm.Join(context.Background(), "a", []string{"u1"}, nil); !errors.Is(err, gameye.ErrNotFound) {
+		t.Fatalf("err = %v, want one wrapping ErrNotFound", err)
+	}
+	if got := store.stored(t, "a"); got.PlayerCount != 1 {
+		t.Fatalf("player count changed on a failed join: %d", got.PlayerCount)
+	}
+}
+
+// --- List ------------------------------------------------------------------
+
+func TestListFiltersAndRefreshesStorage(t *testing.T) {
+	fapi := newFakeApi()
+	fapi.listFn = func(ctx context.Context, req gameye.SessionList) ([]gameye.SessionListEntry, error) {
+		return []gameye.SessionListEntry{
+			{ID: "a", Status: "running", PlayerCount: 2, IPV4Address: "1.2.3.4", Ports: map[string]int{"7360/tcp": 21000}},
+			{ID: "b", Status: "draining", PlayerCount: 0, IPV4Address: "5.6.7.8", Ports: map[string]int{"7360/tcp": 21001}},
+			{ID: "c", Status: "exited", IPV4Address: "5.6.7.8", Ports: map[string]int{"7360/tcp": 21002}},
+		}, nil
+	}
+	fm, store, _ := newTestFleetManager(t, testConfig(), fapi)
+	store.put(t, &runtime.InstanceInfo{Id: "a", PlayerCount: 0, Status: "running"})
+	store.put(t, &runtime.InstanceInfo{Id: "c", Status: "running"})
+
+	list, cursor, err := fm.List(context.Background(), "", 10, "")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if cursor != "" {
+		t.Fatalf("cursor = %q, want none", cursor)
+	}
+	if len(fapi.lists) != 1 {
+		t.Fatalf("lists = %v", fapi.lists)
+	}
+	if got := fapi.lists[0]; got.Region != "europe" || got.Image != "my-game" || got.Tag != "1.0.0" {
+		t.Fatalf("list filter = %+v, want the configured region, image and tag", got)
+	}
+	if len(list) != 3 || list[0].Id != "a" || list[0].ConnectionInfo.Port != 21000 || list[0].PlayerCount != 2 {
+		t.Fatalf("list = %+v", list)
+	}
+	if got := store.stored(t, "a"); got == nil || got.PlayerCount != 2 {
+		t.Fatalf("stored a = %+v, want refreshed player count 2", got)
+	}
+	if store.stored(t, "b") == nil {
+		t.Fatalf("draining session b must be stored")
+	}
+	if store.stored(t, "c") != nil {
+		t.Fatalf("exited session c must be removed from storage")
+	}
+}
+
+func TestListApiErrorLeavesStorage(t *testing.T) {
+	fapi := newFakeApi()
+	fapi.listFn = func(ctx context.Context, req gameye.SessionList) ([]gameye.SessionListEntry, error) {
+		return nil, &gameye.ApiError{StatusCode: 403}
+	}
+	fm, store, _ := newTestFleetManager(t, testConfig(), fapi)
+	store.put(t, &runtime.InstanceInfo{Id: "a", Status: "running"})
+
+	if _, _, err := fm.List(context.Background(), "", 10, ""); !errors.Is(err, gameye.ErrForbidden) {
+		t.Fatalf("err = %v, want one wrapping ErrForbidden", err)
+	}
+	if store.stored(t, "a") == nil {
+		t.Fatalf("storage changed on a failed list")
+	}
+}
+
+// --- Update ----------------------------------------------------------------
+
+func TestUpdateSetsStoredPlayerCount(t *testing.T) {
+	fapi := newFakeApi()
+	fm, store, _ := newTestFleetManager(t, testConfig(), fapi)
+	store.put(t, &runtime.InstanceInfo{Id: "a", Status: "running", PlayerCount: 1})
+
+	if err := fm.Update(context.Background(), "a", 5, nil); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if got := store.stored(t, "a"); got.PlayerCount != 5 {
+		t.Fatalf("player count = %d, want 5", got.PlayerCount)
+	}
+}
+
+func TestUpdateUnknownFallsBackToGet(t *testing.T) {
+	fapi := newFakeApi()
+	fapi.descFn = describeAs(gameyeApi.Running)
+	fm, store, _ := newTestFleetManager(t, testConfig(), fapi)
+
+	if err := fm.Update(context.Background(), "a", 5, nil); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if got := store.stored(t, "a"); got == nil || got.PlayerCount != 3 {
+		t.Fatalf("stored = %+v, want the described instance", got)
+	}
+}
+
+// --- env pass-through (U3) -------------------------------------------------
+
+const secret = "s3cr3t-seat-value"
+
+func assertNoSecret(t *testing.T, where, s string) {
+	t.Helper()
+	if strings.Contains(s, secret) || strings.Contains(s, "SEAT_SECRET") {
+		t.Fatalf("env leaked into %s: %s", where, s)
+	}
+}
+
+func TestCreateDivertsEnvFromMetadata(t *testing.T) {
+	for name, env := range map[string]any{
+		"map[string]string": map[string]string{"SEAT_SECRET": secret},
+		"map[string]any":    map[string]any{"SEAT_SECRET": secret},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fapi := newFakeApi()
+			fm, store, handler := newTestFleetManager(t, testConfig(), fapi)
+
+			out, err := fm.Create(context.Background(), 2, nil, nil, map[string]any{
+				MetadataKeyEnv: env,
+				"mode":         "duel",
+			}, nil)
+			if err != nil {
+				t.Fatalf("Create: %v", err)
+			}
+			res := handler.wait(t)
+			if res.status != runtime.CreateSuccess {
+				t.Fatalf("status = %v, err = %v", res.status, res.err)
+			}
+
+			run := fapi.lastRun(t)
+			if run.EnvVars["SEAT_SECRET"] != secret {
+				t.Fatalf("env = %v, want SEAT_SECRET", run.EnvVars)
+			}
+			labels, _ := json.Marshal(run.Labels)
+			assertNoSecret(t, "labels", string(labels))
+			if run.Labels["mode"] != "duel" {
+				t.Fatalf("labels = %v", run.Labels)
+			}
+			assertNoSecret(t, "storage", store.raw(out[CreateSessionIdKey]))
+			if store.raw(out[CreateSessionIdKey]) == "" {
+				t.Fatalf("instance not stored")
+			}
+			meta, _ := json.Marshal(res.instance.Metadata)
+			assertNoSecret(t, "instance metadata", string(meta))
+		})
+	}
+}
+
+func TestCreateMergesConfigEnvMetadataWins(t *testing.T) {
+	fapi := newFakeApi()
+	cfg := testConfig()
+	cfg.Env = map[string]string{"REGION_NAME": "eu", "MODE": "static"}
+	fm, _, handler := newTestFleetManager(t, cfg, fapi)
+
+	if _, err := fm.Create(context.Background(), 2, nil, nil, map[string]any{
+		MetadataKeyEnv: map[string]string{"MODE": "ranked", "SEAT_SECRET": secret},
+	}, nil); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	handler.wait(t)
+
+	env := fapi.lastRun(t).EnvVars
+	if env["REGION_NAME"] != "eu" || env["MODE"] != "ranked" || env["SEAT_SECRET"] != secret || len(env) != 3 {
+		t.Fatalf("env = %v", env)
+	}
+	if cfg.Env["MODE"] != "static" || len(cfg.Env) != 2 {
+		t.Fatalf("config env was mutated: %v", cfg.Env)
+	}
+
+	// Config env alone still reaches the container.
+	if _, err := fm.Create(context.Background(), 2, nil, nil, nil, nil); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	handler.wait(t)
+	if env := fapi.lastRun(t).EnvVars; env["MODE"] != "static" || len(env) != 2 {
+		t.Fatalf("env = %v, want the config env", env)
+	}
+}
+
+func TestCreateRejectsInvalidEnvBeforeApiCall(t *testing.T) {
+	for name, env := range map[string]any{
+		"non-string value": map[string]any{"SEAT_SECRET": 7},
+		"nested map":       map[string]any{"A": map[string]string{"B": "c"}},
+		"not a map":        "SEAT_SECRET=x",
+		"empty value":      map[string]string{"SEAT_SECRET": ""},
+		"empty key":        map[string]string{"": "x"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fapi := newFakeApi()
+			fm, _, _ := newTestFleetManager(t, testConfig(), fapi)
+			if _, err := fm.Create(context.Background(), 2, nil, nil, map[string]any{MetadataKeyEnv: env}, nil); err == nil {
+				t.Fatalf("expected an error")
+			}
+			if fapi.runCount() != 0 {
+				t.Fatalf("no API call expected")
+			}
+		})
+	}
+}
+
+// A plain "env" metadata key would become a label; Gameye can echo env as the
+// "env" label, so the key is reserved.
+func TestCreateRejectsEnvLabel(t *testing.T) {
+	fapi := newFakeApi()
+	fm, _, _ := newTestFleetManager(t, testConfig(), fapi)
+	if _, err := fm.Create(context.Background(), 2, nil, nil, map[string]any{"env": "x"}, nil); err == nil {
+		t.Fatalf("expected an error for metadata key \"env\"")
+	}
+	if fapi.runCount() != 0 {
+		t.Fatalf("no API call expected")
+	}
+}
+
+func TestCreateRejectsEmptyConfigEnvValue(t *testing.T) {
+	cfg := testConfig()
+	cfg.Env = map[string]string{"A": ""}
+	if err := cfg.Validate(); !errors.Is(err, ErrInvalidEnv) {
+		t.Fatalf("Validate = %v, want ErrInvalidEnv", err)
+	}
+}
+
+func TestCreateSetsInstanceMetadata(t *testing.T) {
+	fapi := newFakeApi()
+	fm, store, handler := newTestFleetManager(t, testConfig(), fapi)
+
+	out, err := fm.Create(context.Background(), 2, nil, nil, map[string]any{
+		MetadataKeyExternalId: "match-42",
+		MetadataKeyEnv:        map[string]string{"SEAT_SECRET": secret},
+		"mode":                "duel",
+		"max":                 4,
+	}, nil)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	res := handler.wait(t)
+	if res.instance.Metadata["mode"] != "duel" || res.instance.Metadata["max"] != 4 || len(res.instance.Metadata) != 2 {
+		t.Fatalf("metadata = %v, want only the non-reserved keys", res.instance.Metadata)
+	}
+	if got := store.stored(t, out[CreateSessionIdKey]); got.Metadata["mode"] != "duel" {
+		t.Fatalf("stored metadata = %v", got.Metadata)
+	}
+}
+
+func TestGetAndListStripEchoedEnvLabel(t *testing.T) {
+	labels := map[string]string{"env": `{"SEAT_SECRET":"` + secret + `"}`, "mode": "duel"}
+	fapi := newFakeApi()
+	fapi.descFn = func(ctx context.Context, req gameye.SessionDescribe) (*gameye.Session, error) {
+		return &gameye.Session{ID: req.ID, Status: gameyeApi.Running, Ports: map[string]int{"7360/tcp": 1}, Labels: labels}, nil
+	}
+	fapi.listFn = func(ctx context.Context, req gameye.SessionList) ([]gameye.SessionListEntry, error) {
+		return []gameye.SessionListEntry{{ID: "b", Status: "running", Ports: map[string]int{"7360/tcp": 1}, Labels: labels}}, nil
+	}
+	fm, store, _ := newTestFleetManager(t, testConfig(), fapi)
+
+	inst, err := fm.Get(context.Background(), "a")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if inst.Metadata["mode"] != "duel" || inst.Metadata["env"] != nil {
+		t.Fatalf("Get metadata = %v", inst.Metadata)
+	}
+	assertNoSecret(t, "storage after Get", store.raw("a"))
+
+	list, _, err := fm.List(context.Background(), "", 10, "")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if list[0].Metadata["mode"] != "duel" || list[0].Metadata["env"] != nil {
+		t.Fatalf("List metadata = %v", list[0].Metadata)
+	}
+	assertNoSecret(t, "storage after List", store.raw("b"))
+	if store.raw("b") == "" {
+		t.Fatalf("listed session not stored")
+	}
+	if labels["env"] == "" {
+		t.Fatalf("the API response's labels were mutated")
+	}
+}
+
+// --- join on create (U3) ---------------------------------------------------
+
+func TestCreateJoinsUsers(t *testing.T) {
+	fapi := newFakeApi()
+	fm, store, handler := newTestFleetManager(t, testConfig(), fapi)
+
+	out, err := fm.Create(context.Background(), 2, []string{"u1", "u2"}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	res := handler.wait(t)
+	if res.status != runtime.CreateSuccess {
+		t.Fatalf("status = %v, err = %v", res.status, res.err)
+	}
+	id := out[CreateSessionIdKey]
+
+	joins := fapi.joinCalls()
+	if len(joins) != 1 || joins[0].ID != id || strings.Join(joins[0].PlayerIDs, ",") != "u1,u2" {
+		t.Fatalf("joins = %+v, want one call with both users", joins)
+	}
+	if len(res.sessions) != 2 || res.sessions[0].UserId != "u1" || res.sessions[1].UserId != "u2" ||
+		res.sessions[0].SessionId != id || res.sessions[1].SessionId != id {
+		t.Fatalf("session info = %+v", res.sessions)
+	}
+	if res.instance.PlayerCount != 2 {
+		t.Fatalf("player count = %d", res.instance.PlayerCount)
+	}
+	if got := store.stored(t, id); got == nil || got.PlayerCount != 2 {
+		t.Fatalf("stored = %+v, want player count 2", got)
+	}
+}
+
+func TestCreateWithoutUsersDoesNotJoin(t *testing.T) {
+	fapi := newFakeApi()
+	fm, _, handler := newTestFleetManager(t, testConfig(), fapi)
+	if _, err := fm.Create(context.Background(), 2, nil, nil, nil, nil); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	res := handler.wait(t)
+	if res.sessions != nil {
+		t.Fatalf("session info = %v, want nil without user ids", res.sessions)
+	}
+	if len(fapi.joinCalls()) != 0 {
+		t.Fatalf("join called without user ids")
+	}
+}
+
+func TestCreateJoinFailureStopsSession(t *testing.T) {
+	fapi := newFakeApi()
+	fapi.joinFn = func(ctx context.Context, req gameye.SessionJoin) ([]string, error) {
+		return nil, &gameye.ApiError{StatusCode: 403}
+	}
+	fm, store, handler := newTestFleetManager(t, testConfig(), fapi)
+
+	out, err := fm.Create(context.Background(), 2, []string{"u1", "u2"}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	res := handler.wait(t)
+	if res.status != runtime.CreateError || !errors.Is(res.err, gameye.ErrForbidden) {
+		t.Fatalf("status = %v, err = %v; want CreateError wrapping ErrForbidden", res.status, res.err)
+	}
+	if res.instance != nil || res.sessions != nil {
+		t.Fatalf("instance and sessions must be nil on error")
+	}
+	if got := fapi.stopCalls(); len(got) != 1 || got[0] != out[CreateSessionIdKey] {
+		t.Fatalf("stops = %v, want the started session stopped", got)
+	}
+	if store.stored(t, out[CreateSessionIdKey]) != nil {
+		t.Fatalf("session must not be stored")
 	}
 }

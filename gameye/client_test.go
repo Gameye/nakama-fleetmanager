@@ -336,3 +336,26 @@ func TestSessionJoin(t *testing.T) {
 		t.Fatalf("unexpected request %s %s", r.Method, r.Path)
 	}
 }
+
+func TestSessionListAndDescribeReturnLabels(t *testing.T) {
+	_, client := newFakeServer(t, http.StatusOK, `{"sessions":[{"id":"a","image":"g","location":"europe","host":"1.2.3.4","created":1648472895123,"port":{"7360/tcp":20002},"status":"running","labels":{"mode":"duel"}},{"id":"b","image":"g","location":"europe","host":"1.2.3.4","created":1648472895123,"port":{},"status":"running"}]}`)
+	sessions, err := client.SessionList(context.Background(), SessionList{})
+	if err != nil {
+		t.Fatalf("SessionList: %v", err)
+	}
+	if sessions[0].Labels["mode"] != "duel" {
+		t.Fatalf("labels = %v", sessions[0].Labels)
+	}
+	if sessions[1].Labels != nil {
+		t.Fatalf("missing labels should be nil, got %v", sessions[1].Labels)
+	}
+
+	_, client = newFakeServer(t, http.StatusOK, `{"id":"a","image":"g","tag":"v1","location":"europe","host":"1.2.3.4","created":1648472895123,"port":{},"status":"running","labels":{"mode":"duel"},"players":{"joined":[],"joinedCount":0}}`)
+	session, err := client.SessionDescribe(context.Background(), SessionDescribe{ID: "a"})
+	if err != nil {
+		t.Fatalf("SessionDescribe: %v", err)
+	}
+	if session.Labels["mode"] != "duel" {
+		t.Fatalf("labels = %v", session.Labels)
+	}
+}
