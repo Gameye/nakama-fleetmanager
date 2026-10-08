@@ -49,6 +49,38 @@ type AvailableLocationsOk struct {
 	Locations []AvailableLocationsEntry `json:"locations"`
 }
 
+// CreateApplicationRequestBody defines model for CreateApplicationRequestBody.
+type CreateApplicationRequestBody struct {
+	Limits Limits `json:"limits"`
+
+	// Name The name of this application.
+	Name        string        `json:"name"`
+	NetworkMode string        `json:"networkMode"`
+	NodePool    string        `json:"nodePool"`
+	Ports       []PortBinding `json:"ports"`
+	Regions     []string      `json:"regions"`
+	Registry    string        `json:"registry"`
+	Repository  string        `json:"repository"`
+	Reservation Reservation   `json:"reservation"`
+	TagKeep     int           `json:"tagKeep"`
+}
+
+// CreateApplicationResponseBody defines model for CreateApplicationResponseBody.
+type CreateApplicationResponseBody = map[string]interface{}
+
+// CreateTokenRequestBody defines model for CreateTokenRequestBody.
+type CreateTokenRequestBody struct {
+	// ExpiresAfter The time after which the token should expire. Valid time units are 'm' and 'h'.
+	// Values equal to less than a minute will be rounded up to a minute.
+	ExpiresAfter *string `json:"expires_after,omitempty"`
+
+	// Name The name of the token to be created.
+	Name string `json:"name"`
+
+	// Scopes The list of scopes that the token should be created with.
+	Scopes []string `json:"scopes"`
+}
+
 // DescribedSession defines model for DescribedSession.
 type DescribedSession struct {
 	// Id The unique identifier of the session.
@@ -86,6 +118,24 @@ type DescribedSessionPlayers struct {
 	JoinedCount int      `json:"joinedCount"`
 }
 
+// EditApplicationRequestBody defines model for EditApplicationRequestBody.
+type EditApplicationRequestBody struct {
+	Limits      *Limits        `json:"limits,omitempty"`
+	NetworkMode *string        `json:"networkMode,omitempty"`
+	NodePool    *string        `json:"nodePool,omitempty"`
+	Ports       *[]PortBinding `json:"ports,omitempty"`
+	Regions     *[]string      `json:"regions,omitempty"`
+	Registry    *string        `json:"registry,omitempty"`
+	Repository  *string        `json:"repository,omitempty"`
+	Reservation *Reservation   `json:"reservation,omitempty"`
+	TagKeep     *int           `json:"tagKeep,omitempty"`
+}
+
+// EnableApplicationTagRequestBody defines model for EnableApplicationTagRequestBody.
+type EnableApplicationTagRequestBody struct {
+	Tag string `json:"tag"`
+}
+
 // ErrorResponse defines model for ErrorResponse.
 type ErrorResponse struct {
 	Code       string            `json:"code"`
@@ -113,8 +163,8 @@ type JoinSession struct {
 	Session string `json:"session"`
 }
 
-// JoinSessionOk defines model for JoinSessionOk.
-type JoinSessionOk struct {
+// JoinSessionOkBody defines model for JoinSessionOkBody.
+type JoinSessionOkBody struct {
 	// Count The total amount of players that are in this session.
 	Count int `json:"count"`
 
@@ -128,13 +178,50 @@ type LeaveSession struct {
 	Players []string `json:"players"`
 }
 
-// LeaveSessionOk defines model for LeaveSessionOk.
-type LeaveSessionOk struct {
+// LeaveSessionOkBody defines model for LeaveSessionOkBody.
+type LeaveSessionOkBody struct {
 	// Count The total amount of players that are in this session.
 	Count int `json:"count"`
 
 	// Players The list of player ID's to leave this session.
 	Players []string `json:"players"`
+}
+
+// Limits defines model for Limits.
+type Limits struct {
+	Cpu float32  `json:"cpu"`
+	Gpu *float32 `json:"gpu,omitempty"`
+	Ram float32  `json:"ram"`
+}
+
+// ListApplicationRegistryTagsResponseBody defines model for ListApplicationRegistryTagsResponseBody.
+type ListApplicationRegistryTagsResponseBody struct {
+	Tags []RegistryTag `json:"tags"`
+}
+
+// ListApplicationsResponseBody defines model for ListApplicationsResponseBody.
+type ListApplicationsResponseBody struct {
+	Applications []ListedApplication `json:"applications"`
+}
+
+// ListRegionsResponseBody defines model for ListRegionsResponseBody.
+type ListRegionsResponseBody struct {
+	Regions []string `json:"regions"`
+}
+
+// ListedApplication defines model for ListedApplication.
+type ListedApplication struct {
+	// Name The name of this application.
+	Name        string        `json:"name"`
+	Repository  string        `json:"repository"`
+	TagKeep     int           `json:"tagKeep"`
+	NetworkMode string        `json:"networkMode"`
+	Limits      Limits        `json:"limits"`
+	Reservation Reservation   `json:"reservation"`
+	Registry    *string       `json:"registry,omitempty"`
+	NodePool    *string       `json:"nodePool,omitempty"`
+	Regions     []string      `json:"regions"`
+	Ports       []PortBinding `json:"ports"`
 }
 
 // Port defines model for Port.
@@ -151,6 +238,25 @@ type Port struct {
 
 // PortType The type of protocol of this port entry.
 type PortType string
+
+// PortBinding defines model for PortBinding.
+type PortBinding struct {
+	Protocol  string `json:"protocol"`
+	Requested int    `json:"requested"`
+	Tls       bool   `json:"tls"`
+}
+
+// RegistryTag defines model for RegistryTag.
+type RegistryTag struct {
+	Version string `json:"version"`
+}
+
+// Reservation defines model for Reservation.
+type Reservation struct {
+	Cpu float32  `json:"cpu"`
+	Gpu *float32 `json:"gpu,omitempty"`
+	Ram float32  `json:"ram"`
+}
 
 // SessionListEntry defines model for SessionListEntry.
 type SessionListEntry struct {
@@ -183,43 +289,48 @@ type SessionListEntry struct {
 	PlayerCount *int               `json:"playerCount,omitempty"`
 }
 
-// SessionListOk defines model for SessionListOk.
-type SessionListOk struct {
+// SessionListOkBody defines model for SessionListOkBody.
+type SessionListOkBody struct {
 	Sessions []SessionListEntry `json:"sessions"`
 }
 
-// SessionRun defines model for SessionRun.
-type SessionRun struct {
-	// Args The list of program console arguments to feed to the application hosted inside the underlying container.
+// SessionRunBody defines model for SessionRunBody.
+type SessionRunBody struct {
+	// Args The list of program console arguments to feed to the application hosted inside  the underlying container. This field is ignored when a container is claimed  from a warm pool.
 	Args *[]string `json:"args,omitempty"`
 
-	// Env The list of environment variables to feed the container on startup.
+	// Env The list of environment variables to feed the underlying container on startup. This field is ignored when a container is claimed from a warm pool.
 	Env *map[string]string `json:"env,omitempty"`
+
+	// ExternalId An optional customer-provided identifier for this session.
+	//
+	ExternalId *string `json:"external_id,omitempty"`
 
 	// Id The unique identifier of the session. If undefined, Gameye will generate a UUIDV4
 	// for you and return it in the API response.
 	Id *string `json:"id,omitempty"`
 
-	// Image The name of the image of the game to host inside a container.
+	// Image The name of the application.
 	Image string `json:"image"`
 
-	// Labels The collection of user-defined key/value metadata stored inside the configuration of the session.
+	// Labels A collection of user-defined key/value metadata. This field is ignored in  case a container is claimed from a warm pool.
 	Labels map[string]string `json:"labels,omitempty"`
 
-	// Location The location or region that the game session is preferred to be hosted in.
+	// Location The region the game session is to be hosted in.
 	Location string `json:"location"`
 
-	// Restart Indicates whether this session must be automatically restarted on failure.
-	// The underlying container will not be restarted in case of a manual termination.
+	// Restart Indicates whether this session must be automatically restarted on failure. The  underlying container will not be restarted in case of a manual termination. This field is ignored when a container is claimed from a warm pool.
 	Restart *bool `json:"restart,omitempty"`
 
-	// Version Tag of the image that the session will be run. This tag needs to be available or a 404 will be thrown. If not specified  run the tag with the highest priority.
-	//
+	// Ttl The amount of time a container should live for until it is to be automatically (and forcefully) terminated. Valid time units are 'm' and 'h'. Any value than a minute will be rounded up to a minute.
+	Ttl *string `json:"ttl,omitempty"`
+
+	// Version Tag of the image that the session will be run. This tag needs to be available or a 404 will be thrown. If not specified  run the tag with the highest priority. This field is ignored when a  container is claimed from a warm pool.
 	Version *string `json:"version,omitempty"`
 }
 
-// SessionRunOk defines model for SessionRunOk.
-type SessionRunOk struct {
+// SessionRunOkBody defines model for SessionRunOkBody.
+type SessionRunOkBody struct {
 	// Host The IP address of the machine that the session is running on.
 	Host string `json:"host"`
 
@@ -236,6 +347,20 @@ type SessionStatus string
 // TagOk defines model for TagOk.
 type TagOk struct {
 	Exists bool `json:"exists"`
+}
+
+// TokenCreatedResponseBody defines model for TokenCreatedResponseBody.
+type TokenCreatedResponseBody struct {
+	Token string `json:"token"`
+}
+
+// ListApplicationTagsUpstreamParams defines parameters for ListApplicationTagsUpstream.
+type ListApplicationTagsUpstreamParams struct {
+	// Page The page number to retrieve.
+	Page *int `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize The number of tags to retrieve per page.
+	PageSize *int `form:"pageSize,omitempty" json:"pageSize,omitempty"`
 }
 
 // ArtifactsParams defines parameters for Artifacts.
@@ -275,14 +400,26 @@ type SessionListParams struct {
 	Filter      *map[string]string `json:"filter,omitempty"`
 }
 
+// CreateApplicationJSONRequestBody defines body for CreateApplication for application/json ContentType.
+type CreateApplicationJSONRequestBody = CreateApplicationRequestBody
+
+// EditApplicationJSONRequestBody defines body for EditApplication for application/json ContentType.
+type EditApplicationJSONRequestBody = EditApplicationRequestBody
+
+// EnableTagJSONRequestBody defines body for EnableTag for application/json ContentType.
+type EnableTagJSONRequestBody = EnableApplicationTagRequestBody
+
 // SessionRunJSONRequestBody defines body for SessionRun for application/json ContentType.
-type SessionRunJSONRequestBody = SessionRun
+type SessionRunJSONRequestBody = SessionRunBody
 
 // JoinSessionJSONRequestBody defines body for JoinSession for application/json ContentType.
 type JoinSessionJSONRequestBody = JoinSession
 
 // LeaveSessionJSONRequestBody defines body for LeaveSession for application/json ContentType.
 type LeaveSessionJSONRequestBody = LeaveSession
+
+// CreateTokenJSONRequestBody defines body for CreateToken for application/json ContentType.
+type CreateTokenJSONRequestBody = CreateTokenRequestBody
 
 // RequestEditorFn  is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -357,6 +494,27 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+	// ListApplications request
+	ListApplications(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateApplicationWithBody request with any body
+	CreateApplicationWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CreateApplication(ctx context.Context, body CreateApplicationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// EditApplicationWithBody request with any body
+	EditApplicationWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	EditApplication(ctx context.Context, name string, body EditApplicationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// EnableTagWithBody request with any body
+	EnableTagWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	EnableTag(ctx context.Context, name string, body EnableTagJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListApplicationTagsUpstream request
+	ListApplicationTagsUpstream(ctx context.Context, name string, params *ListApplicationTagsUpstreamParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// Artifacts request
 	Artifacts(ctx context.Context, params *ArtifactsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -365,6 +523,9 @@ type ClientInterface interface {
 
 	// StreamLogs request
 	StreamLogs(ctx context.Context, params *StreamLogsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListRegions request
+	ListRegions(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// SessionList request
 	SessionList(ctx context.Context, params *SessionListParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -392,6 +553,107 @@ type ClientInterface interface {
 
 	// TagExists request
 	TagExists(ctx context.Context, region string, image string, version string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateTokenWithBody request with any body
+	CreateTokenWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CreateToken(ctx context.Context, body CreateTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+func (c *Client) ListApplications(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListApplicationsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateApplicationWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateApplicationRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateApplication(ctx context.Context, body CreateApplicationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateApplicationRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) EditApplicationWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEditApplicationRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) EditApplication(ctx context.Context, name string, body EditApplicationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEditApplicationRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) EnableTagWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEnableTagRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) EnableTag(ctx context.Context, name string, body EnableTagJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEnableTagRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListApplicationTagsUpstream(ctx context.Context, name string, params *ListApplicationTagsUpstreamParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListApplicationTagsUpstreamRequest(c.Server, name, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 func (c *Client) Artifacts(ctx context.Context, params *ArtifactsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -420,6 +682,18 @@ func (c *Client) GetAvailableLocations(ctx context.Context, image string, reqEdi
 
 func (c *Client) StreamLogs(ctx context.Context, params *StreamLogsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewStreamLogsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListRegions(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListRegionsRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -548,6 +822,263 @@ func (c *Client) TagExists(ctx context.Context, region string, image string, ver
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+func (c *Client) CreateTokenWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateTokenRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateToken(ctx context.Context, body CreateTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateTokenRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// NewListApplicationsRequest generates requests for ListApplications
+func NewListApplicationsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/application")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateApplicationRequest calls the generic CreateApplication builder with application/json body
+func NewCreateApplicationRequest(server string, body CreateApplicationJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateApplicationRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateApplicationRequestWithBody generates requests for CreateApplication with any type of body
+func NewCreateApplicationRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/application")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewEditApplicationRequest calls the generic EditApplication builder with application/json body
+func NewEditApplicationRequest(server string, name string, body EditApplicationJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewEditApplicationRequestWithBody(server, name, "application/json", bodyReader)
+}
+
+// NewEditApplicationRequestWithBody generates requests for EditApplication with any type of body
+func NewEditApplicationRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/application/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PUT", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewEnableTagRequest calls the generic EnableTag builder with application/json body
+func NewEnableTagRequest(server string, name string, body EnableTagJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewEnableTagRequestWithBody(server, name, "application/json", bodyReader)
+}
+
+// NewEnableTagRequestWithBody generates requests for EnableTag with any type of body
+func NewEnableTagRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/application/%s/tags", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListApplicationTagsUpstreamRequest generates requests for ListApplicationTagsUpstream
+func NewListApplicationTagsUpstreamRequest(server string, name string, params *ListApplicationTagsUpstreamParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/application/%s/tags/available", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.Page != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "page", runtime.ParamLocationQuery, *params.Page); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.PageSize != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "pageSize", runtime.ParamLocationQuery, *params.PageSize); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
 }
 
 // NewArtifactsRequest generates requests for Artifacts
@@ -692,6 +1223,33 @@ func NewStreamLogsRequest(server string, params *StreamLogsParams) (*http.Reques
 		}
 
 		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListRegionsRequest generates requests for ListRegions
+func NewListRegionsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/region")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
 	}
 
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
@@ -1083,6 +1641,46 @@ func NewTagExistsRequest(server string, region string, image string, version str
 	return req, nil
 }
 
+// NewCreateTokenRequest calls the generic CreateToken builder with application/json body
+func NewCreateTokenRequest(server string, body CreateTokenJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateTokenRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateTokenRequestWithBody generates requests for CreateToken with any type of body
+func NewCreateTokenRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/token")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -1126,6 +1724,27 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
+	// ListApplicationsWithResponse request
+	ListApplicationsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListApplicationsResponse, error)
+
+	// CreateApplicationWithBodyWithResponse request with any body
+	CreateApplicationWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateApplicationResponse, error)
+
+	CreateApplicationWithResponse(ctx context.Context, body CreateApplicationJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateApplicationResponse, error)
+
+	// EditApplicationWithBodyWithResponse request with any body
+	EditApplicationWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EditApplicationResponse, error)
+
+	EditApplicationWithResponse(ctx context.Context, name string, body EditApplicationJSONRequestBody, reqEditors ...RequestEditorFn) (*EditApplicationResponse, error)
+
+	// EnableTagWithBodyWithResponse request with any body
+	EnableTagWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EnableTagResponse, error)
+
+	EnableTagWithResponse(ctx context.Context, name string, body EnableTagJSONRequestBody, reqEditors ...RequestEditorFn) (*EnableTagResponse, error)
+
+	// ListApplicationTagsUpstreamWithResponse request
+	ListApplicationTagsUpstreamWithResponse(ctx context.Context, name string, params *ListApplicationTagsUpstreamParams, reqEditors ...RequestEditorFn) (*ListApplicationTagsUpstreamResponse, error)
+
 	// ArtifactsWithResponse request
 	ArtifactsWithResponse(ctx context.Context, params *ArtifactsParams, reqEditors ...RequestEditorFn) (*ArtifactsResponse, error)
 
@@ -1134,6 +1753,9 @@ type ClientWithResponsesInterface interface {
 
 	// StreamLogsWithResponse request
 	StreamLogsWithResponse(ctx context.Context, params *StreamLogsParams, reqEditors ...RequestEditorFn) (*StreamLogsResponse, error)
+
+	// ListRegionsWithResponse request
+	ListRegionsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListRegionsResponse, error)
 
 	// SessionListWithResponse request
 	SessionListWithResponse(ctx context.Context, params *SessionListParams, reqEditors ...RequestEditorFn) (*SessionListResponse, error)
@@ -1161,12 +1783,139 @@ type ClientWithResponsesInterface interface {
 
 	// TagExistsWithResponse request
 	TagExistsWithResponse(ctx context.Context, region string, image string, version string, reqEditors ...RequestEditorFn) (*TagExistsResponse, error)
+
+	// CreateTokenWithBodyWithResponse request with any body
+	CreateTokenWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateTokenResponse, error)
+
+	CreateTokenWithResponse(ctx context.Context, body CreateTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateTokenResponse, error)
+}
+
+type ListApplicationsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ListApplicationsResponseBody
+	JSON401      *ErrorResponse
+	JSON403      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r ListApplicationsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListApplicationsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type CreateApplicationResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *CreateApplicationResponseBody
+	JSON401      *ErrorResponse
+	JSON409      *ErrorResponse
+	JSON422      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateApplicationResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateApplicationResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type EditApplicationResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON401      *ErrorResponse
+	JSON404      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r EditApplicationResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r EditApplicationResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type EnableTagResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON401      *ErrorResponse
+	JSON403      *ErrorResponse
+	JSON404      *ErrorResponse
+	JSON422      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r EnableTagResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r EnableTagResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ListApplicationTagsUpstreamResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ListApplicationRegistryTagsResponseBody
+	JSON401      *ErrorResponse
+	JSON403      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r ListApplicationTagsUpstreamResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListApplicationTagsUpstreamResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
 }
 
 type ArtifactsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON401      *ErrorResponse
+	JSON403      *ErrorResponse
 	JSON404      *ErrorResponse
 }
 
@@ -1191,6 +1940,7 @@ type GetAvailableLocationsResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *AvailableLocationsOk
 	JSON401      *ErrorResponse
+	JSON403      *ErrorResponse
 	JSON404      *ErrorResponse
 }
 
@@ -1214,6 +1964,7 @@ type StreamLogsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON401      *ErrorResponse
+	JSON403      *ErrorResponse
 	JSON404      *ErrorResponse
 }
 
@@ -1233,11 +1984,36 @@ func (r StreamLogsResponse) StatusCode() int {
 	return 0
 }
 
+type ListRegionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ListRegionsResponseBody
+	JSON401      *ErrorResponse
+	JSON403      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r ListRegionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListRegionsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type SessionListResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *SessionListOk
+	JSON200      *SessionListOkBody
 	JSON401      *ErrorResponse
+	JSON403      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -1259,8 +2035,10 @@ func (r SessionListResponse) StatusCode() int {
 type SessionRunResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON201      *SessionRunOk
+	JSON201      *SessionRunOkBody
 	JSON401      *ErrorResponse
+	JSON402      *ErrorResponse
+	JSON403      *ErrorResponse
 	JSON404      *ErrorResponse
 	JSON409      *ErrorResponse
 	JSON420      *ErrorResponse
@@ -1286,8 +2064,9 @@ func (r SessionRunResponse) StatusCode() int {
 type JoinSessionResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *JoinSessionOk
+	JSON200      *JoinSessionOkBody
 	JSON401      *ErrorResponse
+	JSON403      *ErrorResponse
 	JSON404      *ErrorResponse
 	JSON422      *ErrorResponse
 }
@@ -1311,8 +2090,9 @@ func (r JoinSessionResponse) StatusCode() int {
 type LeaveSessionResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *LeaveSessionOk
+	JSON200      *LeaveSessionOkBody
 	JSON401      *ErrorResponse
+	JSON403      *ErrorResponse
 	JSON404      *ErrorResponse
 	JSON422      *ErrorResponse
 }
@@ -1337,6 +2117,7 @@ type SessionStopResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON401      *ErrorResponse
+	JSON403      *ErrorResponse
 	JSON404      *ErrorResponse
 	JSON409      *ErrorResponse
 }
@@ -1362,6 +2143,7 @@ type DescribeSessionResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *DescribedSession
 	JSON401      *ErrorResponse
+	JSON403      *ErrorResponse
 	JSON404      *ErrorResponse
 }
 
@@ -1387,6 +2169,7 @@ type TagExistsResponse struct {
 	JSON200      *TagOk
 	JSON400      *ErrorResponse
 	JSON401      *ErrorResponse
+	JSON403      *ErrorResponse
 	JSON404      *ErrorResponse
 }
 
@@ -1404,6 +2187,100 @@ func (r TagExistsResponse) StatusCode() int {
 		return r.HTTPResponse.StatusCode
 	}
 	return 0
+}
+
+type CreateTokenResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *TokenCreatedResponseBody
+	JSON401      *ErrorResponse
+	JSON409      *ErrorResponse
+	JSON422      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateTokenResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateTokenResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ListApplicationsWithResponse request returning *ListApplicationsResponse
+func (c *ClientWithResponses) ListApplicationsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListApplicationsResponse, error) {
+	rsp, err := c.ListApplications(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListApplicationsResponse(rsp)
+}
+
+// CreateApplicationWithBodyWithResponse request with arbitrary body returning *CreateApplicationResponse
+func (c *ClientWithResponses) CreateApplicationWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateApplicationResponse, error) {
+	rsp, err := c.CreateApplicationWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateApplicationResponse(rsp)
+}
+
+func (c *ClientWithResponses) CreateApplicationWithResponse(ctx context.Context, body CreateApplicationJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateApplicationResponse, error) {
+	rsp, err := c.CreateApplication(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateApplicationResponse(rsp)
+}
+
+// EditApplicationWithBodyWithResponse request with arbitrary body returning *EditApplicationResponse
+func (c *ClientWithResponses) EditApplicationWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EditApplicationResponse, error) {
+	rsp, err := c.EditApplicationWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEditApplicationResponse(rsp)
+}
+
+func (c *ClientWithResponses) EditApplicationWithResponse(ctx context.Context, name string, body EditApplicationJSONRequestBody, reqEditors ...RequestEditorFn) (*EditApplicationResponse, error) {
+	rsp, err := c.EditApplication(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEditApplicationResponse(rsp)
+}
+
+// EnableTagWithBodyWithResponse request with arbitrary body returning *EnableTagResponse
+func (c *ClientWithResponses) EnableTagWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EnableTagResponse, error) {
+	rsp, err := c.EnableTagWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEnableTagResponse(rsp)
+}
+
+func (c *ClientWithResponses) EnableTagWithResponse(ctx context.Context, name string, body EnableTagJSONRequestBody, reqEditors ...RequestEditorFn) (*EnableTagResponse, error) {
+	rsp, err := c.EnableTag(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEnableTagResponse(rsp)
+}
+
+// ListApplicationTagsUpstreamWithResponse request returning *ListApplicationTagsUpstreamResponse
+func (c *ClientWithResponses) ListApplicationTagsUpstreamWithResponse(ctx context.Context, name string, params *ListApplicationTagsUpstreamParams, reqEditors ...RequestEditorFn) (*ListApplicationTagsUpstreamResponse, error) {
+	rsp, err := c.ListApplicationTagsUpstream(ctx, name, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListApplicationTagsUpstreamResponse(rsp)
 }
 
 // ArtifactsWithResponse request returning *ArtifactsResponse
@@ -1431,6 +2308,15 @@ func (c *ClientWithResponses) StreamLogsWithResponse(ctx context.Context, params
 		return nil, err
 	}
 	return ParseStreamLogsResponse(rsp)
+}
+
+// ListRegionsWithResponse request returning *ListRegionsResponse
+func (c *ClientWithResponses) ListRegionsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListRegionsResponse, error) {
+	rsp, err := c.ListRegions(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListRegionsResponse(rsp)
 }
 
 // SessionListWithResponse request returning *SessionListResponse
@@ -1520,6 +2406,230 @@ func (c *ClientWithResponses) TagExistsWithResponse(ctx context.Context, region 
 	return ParseTagExistsResponse(rsp)
 }
 
+// CreateTokenWithBodyWithResponse request with arbitrary body returning *CreateTokenResponse
+func (c *ClientWithResponses) CreateTokenWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateTokenResponse, error) {
+	rsp, err := c.CreateTokenWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateTokenResponse(rsp)
+}
+
+func (c *ClientWithResponses) CreateTokenWithResponse(ctx context.Context, body CreateTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateTokenResponse, error) {
+	rsp, err := c.CreateToken(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateTokenResponse(rsp)
+}
+
+// ParseListApplicationsResponse parses an HTTP response from a ListApplicationsWithResponse call
+func ParseListApplicationsResponse(rsp *http.Response) (*ListApplicationsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListApplicationsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ListApplicationsResponseBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateApplicationResponse parses an HTTP response from a CreateApplicationWithResponse call
+func ParseCreateApplicationResponse(rsp *http.Response) (*CreateApplicationResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateApplicationResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest CreateApplicationResponseBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseEditApplicationResponse parses an HTTP response from a EditApplicationWithResponse call
+func ParseEditApplicationResponse(rsp *http.Response) (*EditApplicationResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &EditApplicationResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseEnableTagResponse parses an HTTP response from a EnableTagWithResponse call
+func ParseEnableTagResponse(rsp *http.Response) (*EnableTagResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &EnableTagResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListApplicationTagsUpstreamResponse parses an HTTP response from a ListApplicationTagsUpstreamWithResponse call
+func ParseListApplicationTagsUpstreamResponse(rsp *http.Response) (*ListApplicationTagsUpstreamResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListApplicationTagsUpstreamResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ListApplicationRegistryTagsResponseBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseArtifactsResponse parses an HTTP response from a ArtifactsWithResponse call
 func ParseArtifactsResponse(rsp *http.Response) (*ArtifactsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -1540,6 +2650,13 @@ func ParseArtifactsResponse(rsp *http.Response) (*ArtifactsResponse, error) {
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest ErrorResponse
@@ -1581,6 +2698,13 @@ func ParseGetAvailableLocationsResponse(rsp *http.Response) (*GetAvailableLocati
 		}
 		response.JSON401 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -1614,12 +2738,59 @@ func ParseStreamLogsResponse(rsp *http.Response) (*StreamLogsResponse, error) {
 		}
 		response.JSON401 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListRegionsResponse parses an HTTP response from a ListRegionsWithResponse call
+func ParseListRegionsResponse(rsp *http.Response) (*ListRegionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListRegionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ListRegionsResponseBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	}
 
@@ -1641,7 +2812,7 @@ func ParseSessionListResponse(rsp *http.Response) (*SessionListResponse, error) 
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest SessionListOk
+		var dest SessionListOkBody
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -1653,6 +2824,13 @@ func ParseSessionListResponse(rsp *http.Response) (*SessionListResponse, error) 
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	}
 
@@ -1674,7 +2852,7 @@ func ParseSessionRunResponse(rsp *http.Response) (*SessionRunResponse, error) {
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest SessionRunOk
+		var dest SessionRunOkBody
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -1686,6 +2864,20 @@ func ParseSessionRunResponse(rsp *http.Response) (*SessionRunResponse, error) {
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 402:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON402 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest ErrorResponse
@@ -1735,7 +2927,7 @@ func ParseJoinSessionResponse(rsp *http.Response) (*JoinSessionResponse, error) 
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest JoinSessionOk
+		var dest JoinSessionOkBody
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -1747,6 +2939,13 @@ func ParseJoinSessionResponse(rsp *http.Response) (*JoinSessionResponse, error) 
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest ErrorResponse
@@ -1782,7 +2981,7 @@ func ParseLeaveSessionResponse(rsp *http.Response) (*LeaveSessionResponse, error
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest LeaveSessionOk
+		var dest LeaveSessionOkBody
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -1794,6 +2993,13 @@ func ParseLeaveSessionResponse(rsp *http.Response) (*LeaveSessionResponse, error
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest ErrorResponse
@@ -1834,6 +3040,13 @@ func ParseSessionStopResponse(rsp *http.Response) (*SessionStopResponse, error) 
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest ErrorResponse
@@ -1882,6 +3095,13 @@ func ParseDescribeSessionResponse(rsp *http.Response) (*DescribeSessionResponse,
 		}
 		response.JSON401 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -1929,12 +3149,66 @@ func ParseTagExistsResponse(rsp *http.Response) (*TagExistsResponse, error) {
 		}
 		response.JSON401 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateTokenResponse parses an HTTP response from a CreateTokenWithResponse call
+func ParseCreateTokenResponse(rsp *http.Response) (*CreateTokenResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateTokenResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest TokenCreatedResponseBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
 
 	}
 

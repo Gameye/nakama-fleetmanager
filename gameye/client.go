@@ -6,16 +6,42 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	gameyeApi "github.com/Gameye/nakama-fleetmanager/pkg/api/generated/openapi/client"
 	"github.com/oapi-codegen/oapi-codegen/v2/pkg/securityprovider"
 )
 
+// DefaultBaseUrl is Gameye's production Session API.
+const DefaultBaseUrl = "https://api.production-gameye.gameye.net"
+
+// StatusNoCapacity is the non-standard status Gameye returns when a region has
+// no capacity left for the requested session.
+const StatusNoCapacity = 420
+
+// Sentinel errors returned (wrapped in *ApiError) by the ApiClient. Match them
+// with errors.Is.
 var (
-	ErrRanOutOfCompute = errors.New("no compute available in specified region")
-	ErrInternalServer  = errors.New("internal server error")
+	// ErrUnauthorized: the API token is missing, invalid or expired (401).
+	ErrUnauthorized = errors.New("gameye: unauthorized")
+	// ErrQuotaExceeded: the organization's session quota is exhausted (402).
+	ErrQuotaExceeded = errors.New("gameye: quota exceeded")
+	// ErrForbidden: the API token lacks the scope this call needs (403).
+	ErrForbidden = errors.New("gameye: token lacks the required scope")
+	// ErrNotFound: the session, region, application or tag does not exist (404).
+	ErrNotFound = errors.New("gameye: not found")
+	// ErrNoCapacity: no capacity is available in the requested region (420).
+	ErrNoCapacity = errors.New("gameye: no capacity available in region")
+	// ErrInternalServer: Gameye returned a 5xx. These errors are retryable.
+	ErrInternalServer = errors.New("gameye: internal server error")
+
+	// Deprecated: use ErrNoCapacity.
+	ErrRanOutOfCompute = ErrNoCapacity
 )
 
 type SessionRun struct {
@@ -27,8 +53,16 @@ type SessionRun struct {
 	ProgramArgs []string
 	Labels      map[string]string
 	Restart     bool
+	// Ttl is the maximum session lifetime, for example "30m" or "2h". Empty
+	// means no TTL.
+	Ttl string
+	// ExternalID is an optional caller-provided identifier stored with the
+	// session.
+	ExternalID string
 }
 
+// ApiError is returned for every non-success response from the Gameye API.
+// It wraps the sentinel matching its status code, so errors.Is works.
 type ApiError struct {
 	StatusCode int
 	Details    string
@@ -36,7 +70,45 @@ type ApiError struct {
 }
 
 func (e ApiError) Error() string {
-	return e.Message
+	msg := e.Message
+	if msg == "" {
+		msg = http.StatusText(e.StatusCode)
+	}
+	if e.Details != "" {
+		return fmt.Sprintf("gameye api error %d: %s: %s", e.StatusCode, msg, e.Details)
+	}
+	return fmt.Sprintf("gameye api error %d: %s", e.StatusCode, msg)
+}
+
+// Unwrap returns the sentinel error for the status code, or nil.
+func (e ApiError) Unwrap() error {
+	switch {
+	case e.StatusCode == http.StatusUnauthorized:
+		return ErrUnauthorized
+	case e.StatusCode == http.StatusPaymentRequired:
+		return ErrQuotaExceeded
+	case e.StatusCode == http.StatusForbidden:
+		return ErrForbidden
+	case e.StatusCode == http.StatusNotFound:
+		return ErrNotFound
+	case e.StatusCode == StatusNoCapacity:
+		return ErrNoCapacity
+	case e.StatusCode >= 500:
+		return ErrInternalServer
+	default:
+		return nil
+	}
+}
+
+// Retryable reports whether the same request may succeed if sent again.
+func (e ApiError) Retryable() bool {
+	return e.StatusCode >= 500
+}
+
+// IsRetryable reports whether err is a Gameye API error worth retrying (5xx).
+func IsRetryable(err error) bool {
+	var apiErr *ApiError
+	return errors.As(err, &apiErr) && apiErr.Retryable()
 }
 
 type Port struct {
@@ -45,10 +117,66 @@ type Port struct {
 	Host      int
 }
 
+// Key returns the port in Gameye's "<container>/<protocol>" form, e.g. "7360/tcp".
+func (p Port) Key() string {
+	return fmt.Sprintf("%d/%s", p.Container, p.Type)
+}
+
 type SessionStarted struct {
 	ID    string
 	Host  string
 	Ports []Port
+}
+
+// PortMap returns the ports keyed by "<container>/<protocol>" with the host
+// port as value, the same shape list and describe return.
+func (s SessionStarted) PortMap() map[string]int {
+	ports := make(map[string]int, len(s.Ports))
+	for _, p := range s.Ports {
+		ports[p.Key()] = p.Host
+	}
+	return ports
+}
+
+// HostPort picks the host port for a session. With a key such as "7360/tcp"
+// it returns that port's mapping. With an empty key it picks the lowest
+// container port (tcp before udp), so the choice never depends on map order.
+func HostPort(ports map[string]int, key string) (int, bool) {
+	if key != "" {
+		port, ok := ports[key]
+		return port, ok
+	}
+
+	if len(ports) == 0 {
+		return 0, false
+	}
+
+	keys := make([]string, 0, len(ports))
+	for k := range ports {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		ci, pi := splitPortKey(keys[i])
+		cj, pj := splitPortKey(keys[j])
+		if ci != cj {
+			return ci < cj
+		}
+		if pi != pj {
+			return pi < pj
+		}
+		return keys[i] < keys[j]
+	})
+
+	return ports[keys[0]], true
+}
+
+func splitPortKey(key string) (int, string) {
+	num, proto, _ := strings.Cut(key, "/")
+	n, err := strconv.Atoi(num)
+	if err != nil {
+		n = math.MaxInt
+	}
+	return n, proto
 }
 
 type SessionStop struct {
@@ -67,7 +195,9 @@ type SessionListEntry struct {
 	PlayerCount int
 	Status      string
 	IPV4Address string
-	Port        int
+	// Ports maps "<container>/<protocol>" to the host port. Use HostPort to
+	// select one.
+	Ports map[string]int
 }
 
 type SessionDescribe struct {
@@ -80,7 +210,9 @@ type Session struct {
 	PlayerCount int
 	Status      gameyeApi.SessionStatus
 	IPV4Address string
-	Port        int
+	// Ports maps "<container>/<protocol>" to the host port. Use HostPort to
+	// select one.
+	Ports map[string]int
 }
 
 type SessionJoin struct {
@@ -91,6 +223,8 @@ type SessionJoin struct {
 type ApiClient interface {
 	SessionRun(ctx context.Context, req SessionRun) (*SessionStarted, error)
 
+	// SessionStop stops a session. A session that is already gone (404) or
+	// already stopping (409) counts as stopped and returns nil.
 	SessionStop(ctx context.Context, req SessionStop) error
 
 	SessionList(ctx context.Context, req SessionList) ([]SessionListEntry, error)
@@ -104,7 +238,13 @@ type defaultApiClient struct {
 	apiClient *gameyeApi.Client
 }
 
+// NewApiClient returns a client for the Gameye Session API. An empty baseUrl
+// uses DefaultBaseUrl.
 func NewApiClient(baseUrl, apiToken string) (ApiClient, error) {
+	if baseUrl == "" {
+		baseUrl = DefaultBaseUrl
+	}
+
 	auth, err := securityprovider.NewSecurityProviderBearerToken(apiToken)
 	if err != nil {
 		return nil, err
@@ -120,216 +260,156 @@ func NewApiClient(baseUrl, apiToken string) (ApiClient, error) {
 
 func (d *defaultApiClient) SessionRun(ctx context.Context, req SessionRun) (*SessionStarted, error) {
 	requestBody := gameyeApi.SessionRunJSONRequestBody{
-		Id:       &req.ID,
 		Location: req.Region,
 		Image:    req.Image,
-		Env:      &req.EnvVars,
-		Args:     &req.ProgramArgs,
-		Version:  &req.Tag,
 		Labels:   req.Labels,
 		Restart:  &req.Restart,
+		Id:       optionalString(req.ID),
+		Version:  optionalString(req.Tag),
+		Ttl:      optionalString(req.Ttl),
+		// external_id is optional; omit it rather than send "".
+		ExternalId: optionalString(req.ExternalID),
+	}
+	if len(req.EnvVars) > 0 {
+		env := req.EnvVars
+		requestBody.Env = &env
+	}
+	if len(req.ProgramArgs) > 0 {
+		args := req.ProgramArgs
+		requestBody.Args = &args
 	}
 
 	response, err := d.apiClient.SessionRun(ctx, requestBody)
 	if err != nil {
-		return nil, fmt.Errorf("error calling gameye session-run: %v", err)
+		return nil, fmt.Errorf("error calling gameye session-run: %w", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusCreated {
+		return nil, readApiError(response)
 	}
 
-	switch {
-	case response.StatusCode == http.StatusCreated:
-		respBytes, err := io.ReadAll(response.Body)
-		if err != nil {
-			return nil, fmt.Errorf("io error reading session-run response: %v", err)
-		}
-
-		response := &gameyeApi.SessionRunOk{}
-		if err = json.Unmarshal(respBytes, response); err != nil {
-			return nil, fmt.Errorf("error unmarshalling session-run response: %v json: %v", err, string(respBytes))
-		}
-
-		var ports []Port
-		for _, port := range response.Ports {
-			ports = append(ports, Port{
-				Type:      string(port.Type),
-				Host:      port.Host,
-				Container: port.Container,
-			})
-		}
-
-		result := &SessionStarted{
-			ID:    *response.Id,
-			Host:  response.Host,
-			Ports: ports,
-		}
-
-		return result, nil
-
-	case response.StatusCode >= 400 && response.StatusCode <= 500:
-		resp, err := d.readErrorResponse(response.Body)
-		if err != nil {
-			return nil, err
-		}
-
-		return nil, &ApiError{
-			StatusCode: resp.StatusCode,
-			Message:    resp.Message,
-			Details:    resp.Details,
-		}
-
-	default:
-		return nil, fmt.Errorf("error creating session with status code: %v", response.StatusCode)
+	ok := &gameyeApi.SessionRunOkBody{}
+	if err := decodeBody(response.Body, ok); err != nil {
+		return nil, fmt.Errorf("error decoding session-run response: %w", err)
 	}
+
+	ports := make([]Port, 0, len(ok.Ports))
+	for _, port := range ok.Ports {
+		ports = append(ports, Port{
+			Type:      string(port.Type),
+			Host:      port.Host,
+			Container: port.Container,
+		})
+	}
+
+	id := req.ID
+	if ok.Id != nil && *ok.Id != "" {
+		id = *ok.Id
+	}
+
+	return &SessionStarted{
+		ID:    id,
+		Host:  ok.Host,
+		Ports: ports,
+	}, nil
 }
 
 func (d *defaultApiClient) SessionStop(ctx context.Context, req SessionStop) error {
 	response, err := d.apiClient.SessionStop(ctx, req.ID)
 	if err != nil {
-		return fmt.Errorf("error stopping session %v: %v", req.ID, err)
+		return fmt.Errorf("error stopping session %v: %w", req.ID, err)
 	}
+	defer response.Body.Close()
 
 	switch response.StatusCode {
-	case http.StatusNoContent:
+	case http.StatusNoContent, http.StatusOK, http.StatusNotFound, http.StatusConflict:
 		return nil
-
 	default:
-		resp, err := d.readErrorResponse(response.Body)
-		if err != nil {
-			return err
-		}
-
-		return &ApiError{
-			StatusCode: resp.StatusCode,
-			Message:    resp.Message,
-			Details:    resp.Details,
-		}
+		return readApiError(response)
 	}
 }
 
+// sessionListBody mirrors gameyeApi.SessionListOkBody but decodes "created"
+// (milliseconds since epoch) as float64; the generated float32 loses minutes.
+type sessionListBody struct {
+	Sessions []struct {
+		gameyeApi.SessionListEntry
+		Created float64 `json:"created"`
+	} `json:"sessions"`
+}
+
 func (d *defaultApiClient) SessionList(ctx context.Context, req SessionList) ([]SessionListEntry, error) {
-	var (
-		location *string
-		image    *string
-		tag      *string
-	)
-
-	if len(req.Region) > 0 {
-		location = &req.Region
-	}
-
-	if len(req.Image) > 0 {
-		image = &req.Image
-	}
-
-	if len(req.Tag) > 0 {
-		tag = &req.Tag
-	}
-
 	params := &gameyeApi.SessionListParams{
-		Location: location,
-		Image:    image,
-		Tag:      tag,
+		Location: optionalString(req.Region),
+		Image:    optionalString(req.Image),
+		Tag:      optionalString(req.Tag),
 	}
 
 	response, err := d.apiClient.SessionList(ctx, params)
 	if err != nil {
-		return nil, fmt.Errorf("error listing session: %v", err)
+		return nil, fmt.Errorf("error listing sessions: %w", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return nil, readApiError(response)
 	}
 
-	switch response.StatusCode {
-	case http.StatusOK:
-		respBytes, err := io.ReadAll(response.Body)
-		if err != nil {
-			return nil, fmt.Errorf("io error reading session-list response: %v", err)
-		}
-
-		ok := &gameyeApi.SessionListOk{}
-		if err = json.Unmarshal(respBytes, ok); err != nil {
-			return nil, fmt.Errorf("error unmarshalling session-list response: %v json: %v", err, string(respBytes))
-		}
-
-		var sessions []SessionListEntry
-		for _, session := range ok.Sessions {
-			var port int
-			for _, value := range session.Port {
-				port = int(value)
-				break
-			}
-
-			entry := SessionListEntry{
-				ID:          session.Id,
-				Created:     time.Unix(int64(session.Created/1000), 0),
-				PlayerCount: *session.PlayerCount,
-				Status:      string(session.Status),
-				IPV4Address: session.Host,
-				Port:        port,
-			}
-
-			sessions = append(sessions, entry)
-		}
-
-		return sessions, nil
-
-	default:
-		resp, err := d.readErrorResponse(response.Body)
-		if err != nil {
-			return nil, err
-		}
-
-		return nil, &ApiError{
-			StatusCode: resp.StatusCode,
-			Message:    resp.Message,
-			Details:    resp.Details,
-		}
+	ok := &sessionListBody{}
+	if err := decodeBody(response.Body, ok); err != nil {
+		return nil, fmt.Errorf("error decoding session-list response: %w", err)
 	}
+
+	sessions := make([]SessionListEntry, 0, len(ok.Sessions))
+	for _, session := range ok.Sessions {
+		var playerCount int
+		if session.PlayerCount != nil {
+			playerCount = *session.PlayerCount
+		}
+
+		sessions = append(sessions, SessionListEntry{
+			ID:          session.Id,
+			Created:     time.UnixMilli(int64(session.Created)),
+			PlayerCount: playerCount,
+			Status:      string(session.Status),
+			IPV4Address: session.Host,
+			Ports:       portMap(session.Port),
+		})
+	}
+
+	return sessions, nil
+}
+
+type describedSessionBody struct {
+	gameyeApi.DescribedSession
+	Created float64 `json:"created"`
 }
 
 func (d *defaultApiClient) SessionDescribe(ctx context.Context, req SessionDescribe) (*Session, error) {
 	response, err := d.apiClient.DescribeSession(ctx, req.ID)
 	if err != nil {
-		return nil, fmt.Errorf("error describing session: %v: %v", req.ID, err)
+		return nil, fmt.Errorf("error describing session %v: %w", req.ID, err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return nil, readApiError(response)
 	}
 
-	switch response.StatusCode {
-	case http.StatusOK:
-		respBytes, err := io.ReadAll(response.Body)
-		if err != nil {
-			return nil, fmt.Errorf("io error reading describe-session response: %v", err)
-		}
-
-		ok := &gameyeApi.DescribedSession{}
-		if err = json.Unmarshal(respBytes, ok); err != nil {
-			return nil, fmt.Errorf("error unmarshalling describe-session response: %v json: %v", err, string(respBytes))
-		}
-
-		var port int
-		for _, value := range ok.Port {
-			port = int(value)
-			break
-		}
-
-		session := &Session{
-			ID:          ok.Id,
-			Created:     time.Unix(int64(ok.Created/1000), 0),
-			PlayerCount: ok.Players.JoinedCount,
-			Status:      ok.Status,
-			IPV4Address: ok.Host,
-			Port:        port,
-		}
-
-		return session, nil
-
-	default:
-		resp, err := d.readErrorResponse(response.Body)
-		if err != nil {
-			return nil, err
-		}
-
-		return nil, &ApiError{
-			StatusCode: resp.StatusCode,
-			Message:    resp.Message,
-			Details:    resp.Details,
-		}
+	ok := &describedSessionBody{}
+	if err := decodeBody(response.Body, ok); err != nil {
+		return nil, fmt.Errorf("error decoding describe-session response: %w", err)
 	}
+
+	return &Session{
+		ID:          ok.Id,
+		Created:     time.UnixMilli(int64(ok.Created)),
+		PlayerCount: ok.Players.JoinedCount,
+		Status:      ok.Status,
+		IPV4Address: ok.Host,
+		Ports:       portMap(ok.Port),
+	}, nil
 }
 
 func (d *defaultApiClient) SessionJoin(ctx context.Context, req SessionJoin) ([]string, error) {
@@ -337,49 +417,76 @@ func (d *defaultApiClient) SessionJoin(ctx context.Context, req SessionJoin) ([]
 		Players: req.PlayerIDs,
 		Session: req.ID,
 	})
-
 	if err != nil {
-		return nil, fmt.Errorf("error joining session %v: %v", req.ID, err)
+		return nil, fmt.Errorf("error joining session %v: %w", req.ID, err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return nil, readApiError(response)
 	}
 
-	switch response.StatusCode {
-	case http.StatusOK:
-		respBytes, err := io.ReadAll(response.Body)
-		if err != nil {
-			return nil, fmt.Errorf("io error reading join-session response: %v", err)
-		}
-
-		ok := &gameyeApi.JoinSessionOk{}
-		if err = json.Unmarshal(respBytes, ok); err != nil {
-			return nil, fmt.Errorf("error unmarshalling join-session response: %v json: %v", err, string(respBytes))
-		}
-
-		return ok.Players, nil
-
-	default:
-		resp, err := d.readErrorResponse(response.Body)
-		if err != nil {
-			return nil, err
-		}
-
-		return nil, &ApiError{
-			StatusCode: resp.StatusCode,
-			Message:    resp.Message,
-			Details:    resp.Details,
-		}
+	ok := &gameyeApi.JoinSessionOkBody{}
+	if err := decodeBody(response.Body, ok); err != nil {
+		return nil, fmt.Errorf("error decoding join-session response: %w", err)
 	}
+
+	return ok.Players, nil
 }
 
-func (d *defaultApiClient) readErrorResponse(body io.ReadCloser) (*gameyeApi.ErrorResponse, error) {
-	respBytes, err := io.ReadAll(body)
+func optionalString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+func portMap(in map[string]float32) map[string]int {
+	out := make(map[string]int, len(in))
+	for k, v := range in {
+		out[k] = int(v)
+	}
+	return out
+}
+
+func decodeBody(body io.Reader, v any) error {
+	b, err := io.ReadAll(body)
 	if err != nil {
-		return nil, fmt.Errorf("io error reading error response: %v", err)
+		return err
+	}
+	if err := json.Unmarshal(b, v); err != nil {
+		return fmt.Errorf("%w: body: %s", err, truncate(b))
+	}
+	return nil
+}
+
+// readApiError builds an *ApiError from a non-success response. A body that is
+// not a Gameye error document (a proxy's HTML page, say) still yields an
+// *ApiError carrying the status code.
+func readApiError(response *http.Response) error {
+	apiErr := &ApiError{StatusCode: response.StatusCode}
+
+	b, err := io.ReadAll(response.Body)
+	if err != nil {
+		apiErr.Details = fmt.Sprintf("error reading response body: %v", err)
+		return apiErr
 	}
 
 	resp := &gameyeApi.ErrorResponse{}
-	if err = json.Unmarshal(respBytes, resp); err != nil {
-		return nil, fmt.Errorf("error unmarshalling error response: %v json: %v", err, string(respBytes))
+	if err := json.Unmarshal(b, resp); err != nil {
+		apiErr.Details = truncate(b)
+		return apiErr
 	}
 
-	return resp, nil
+	apiErr.Message = resp.Message
+	apiErr.Details = resp.Details
+	return apiErr
+}
+
+func truncate(b []byte) string {
+	const max = 512
+	if len(b) > max {
+		return string(b[:max]) + "..."
+	}
+	return string(b)
 }

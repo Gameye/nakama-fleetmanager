@@ -95,7 +95,8 @@ func InitModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runti
 			case runtime.CreateSuccess:
 				logger.Info("successfully started session %v", instanceInfo.Id)
 
-				_, err := fleetManager.Join(ctx, instanceInfo.Id, userIds, make(map[string]string))
+				// The hook's ctx is cancelled once the hook returns; detach it.
+				_, err := fleetManager.Join(context.WithoutCancel(ctx), instanceInfo.Id, userIds, make(map[string]string))
 				if err != nil {
 					logger.Error(err.Error(), "failed to make players join")
 					return
@@ -108,7 +109,7 @@ func InitModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runti
 			}
 		}
 
-		err := fleetManager.Create(ctx, len(userIds), userIds, nil, make(map[string]any), onResult)
+		_, err := fleetManager.Create(ctx, len(userIds), userIds, nil, make(map[string]any), onResult)
 		if err != nil {
 			logger.Error(err.Error())
 		}

@@ -21,13 +21,10 @@ info:
     altText: Gameye Logo
 
 servers:
-  - url: https://api.gameye.io
-    description: The legacy production environment.
   - url: https://api.sandbox-gameye.gameye.net
     description: The main sandbox environment.
-
-security:
-  - api-token: []
+  - url: https://api.production-gameye.gameye.net
+    description: The main production environment.
 
 paths:
   /session:
@@ -37,55 +34,86 @@ paths:
         Allocate a new game session in a specific region. Each session is to be
         identified by a unique identifier that is provided by the caller. It is 
         recommended to use a UUID.
+
+        In case a warm pool is configured for the specified region and image, an
+        already spun up session will be taken from the pool instead and the given
+        set of program arguments, environment variables and additional labels in
+        the HTTP request will be ignored. Sessions managed by a warm pool will
+        always use the same static set of program arguments and environment variables.
+        The warm pool will then as soon as possible try to replenish itself. If the
+        warm pool is exhausted, a cold allocation will occur as normal.
+      security:
+        - api-token: ['session:start']
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SessionRun'
+              $ref: '#/components/schemas/SessionRunBody'
 
       responses:
         201:
           description: >
-            A session has successfully been started on a machine in the provided
-            location.
+            A session is running on a machine in the provided region.
+
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SessionRunOk'
+                $ref: '#/components/schemas/SessionRunOkBody'
+
         401:
           description: >
-            You are not authorized to start a session. Please make sure that the
-            included bearer
+            You are not authorized to run a session. Please make sure that the
+            included bearer token is correct.
 
-            token is correct.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+        402:
+          description: >
+            You have exhausted your quota.
+
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+        403:
+          description: >
+            Your API token may not have the required permissions to invoke this endpoint.
+
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
         404:
           description: >
-            The request contains a location, image or organization that does not
-            exist.
+            The request contains a region or application that does not exist.
+
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
         409:
           description: >
             Cannot start a session with the provided id. Please use a unique
-            identifier
+            identifier for your session. It is recommended to use a UUID.
 
-            for your session. It is recommended to use a UUID.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+                
         420:
           description: >
-            This session can not be started in the provided location currently.
+            This session can currently not be started in the provided region.
             This could also be the result of starting too many sessions in a short period of time. 
             Please try again later!
+
           content:
             application/json:
               schema:
@@ -94,6 +122,7 @@ paths:
         422:
           description: >
             Bad request. This may imply that the given request has invalid syntax.
+
           content:
             application/json:
               schema:
@@ -180,6 +209,8 @@ paths:
         Lists all of the active sessions that are tied to your API token. Note
         that it only returns sessions that are active. Those that have already been 
         stopped, will not be included.
+      security:
+        - api-token: ['session:read']
       responses:
         200:
           description: >
@@ -188,11 +219,19 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SessionListOk'
+                $ref: '#/components/schemas/SessionListOkBody'
         401:
           description: >
             You are not authorized to fetch a list of active sessions. Please
             make sure that the included bearer token is correct.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+        403:
+          description: >
+            Your API token may not have the required permissions to invoke this endpoint.
           content:
             application/json:
               schema:
@@ -211,6 +250,8 @@ paths:
       summary: Describes a single session.
       description: >
         Describe a single session by ID.
+      security:
+        - api-token: ['session:read']
       responses:
         200:
           description: >
@@ -219,6 +260,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DescribedSession'
+
         401:
           description: >
             You are not authorized to describe sessions. Please
@@ -227,6 +269,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+                
+        403:
+          description: >
+            Your API token may not have the required permissions to invoke this endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
         404:
           description: >
             The specified session does not exist. Please provide a correct
@@ -248,10 +299,13 @@ paths:
           schema:
             type: string
           description: The id of the session.
+      security:
+        - api-token: ['session:stop']
       responses:
         204:
           description: |
             The session has successfully been terminated.
+
         401:
           description: |
             You are not authorized to stop a session. Please make sure that the 
@@ -260,6 +314,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+                
+        403:
+          description: >
+            Your API token may not have the required permissions to invoke this endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
         404:
           description: >
             The specified session does not exist. Please provide a correct
@@ -268,6 +331,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
         409:
           description: |
             This session has already been terminated.
@@ -294,12 +358,20 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/JoinSessionOk'
+                $ref: '#/components/schemas/JoinSessionOkBody'
 
         401:
           description: >
             You are not authorized to start a session. Please make sure that the
             included bearer token is correct.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+                
+        403:
+          description: >
+            Your API token may not have the required permissions to invoke this endpoint.
           content:
             application/json:
               schema:
@@ -338,12 +410,20 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LeaveSessionOk'
+                $ref: '#/components/schemas/LeaveSessionOkBody'
 
         401:
           description: >
             You are not authorized to use this endpoint. Please make sure that the
             included bearer token is correct.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+                
+        403:
+          description: >
+            Your API token may not have the required permissions to invoke this endpoint.
           content:
             application/json:
               schema:
@@ -397,6 +477,8 @@ paths:
         may or 
 
         may not be available post-termination.
+      security:
+        - api-token: ['artifact:read']
       parameters:
         - name: session
           in: query
@@ -425,6 +507,7 @@ paths:
             A download of the artifact in .tar.gz format has been initiated.
           content:
             application/x-tar: {}
+
         401:
           description: >
             You are not authorized to fetch an artifact. Please make sure that
@@ -433,11 +516,324 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+                
+        403:
+          description: >
+            Your API token may not have the required permissions to invoke this endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
         404:
           description: >
             Could not find a session with the given session id. It is possible
             that either the session has never existed at all or the container's 
             lifespan on the machine has expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /token:
+    post:
+      operationId: create-token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTokenRequestBody'
+
+      responses:
+        201:
+          description: A new API token has successfully been generated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenCreatedResponseBody'
+
+        401:
+          description: |
+            You are not authorized to perform this request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+        409:
+          description: |
+            Name conflict.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+        422:
+          description: |
+            Bad request. This may imply that the given request has invalid
+            syntax.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /application:
+    post:
+      operationId: create-application
+      security:
+        - api-token: ['application:write']
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateApplicationRequestBody'
+
+      responses:
+        201:
+          description: A new application has successfully been created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateApplicationResponseBody'
+
+        401:
+          description: |
+            You are not authorized to perform this request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+        409:
+          description: |
+            An application with the given name already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+        422:
+          description: |
+            Bad request. This may imply that the given request has invalid
+            syntax.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      operationId: list-applications
+      summary: List the collection of applications.
+      security:
+        - api-token: ['application:read']
+      responses:
+        200:
+          description: Ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListApplicationsResponseBody'
+
+        401:
+          description: |
+            You are not authorized to list applications. Please make sure that
+            the included bearer token is correct.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+                
+        403:
+          description: >
+            Your API token may not have the required permissions to invoke this endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /application/{name}/tags:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The name of the application.
+        example: my-nginx
+    post:
+      operationId: enable-tag
+      description: >
+        Enables the specified tag for a given application. If the tag already exists, it
+        may cause this tag to be pulled forward for preloading across Gameye's infrastructure. 
+        Once preloaded, the tag can be used to start new sessions in the future.
+      security:
+        - api-token: ['application:write']
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnableApplicationTagRequestBody'
+
+      responses:
+        204:
+          description: >
+            The specified tag has successfully been enabled for this application.
+
+        401:
+          description: >
+            You are not authorized. Please make sure that the included bearer token is correct.
+
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+        403:
+          description: >
+            Your API token may not have the required permissions to invoke this endpoint.
+
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+        404:
+          description: >
+            The specified application or tag does not exist.
+
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+        422:
+          description: >
+            Bad request. This may imply that the given request has invalid syntax.
+
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /application/{name}/tags/available:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The name of the application.
+        example: my-nginx
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 1
+        description: The page number to retrieve.
+      - name: pageSize
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+        description: The number of tags to retrieve per page.
+    get:
+      operationId: list-application-tags-upstream
+      summary: List all available tags for a specific application in the upstream Docker registry.
+      security:
+        - api-token: ['application:read']
+      responses:
+        200:
+          description: Ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListApplicationRegistryTagsResponseBody'
+
+        401:
+          description: |
+            You are not authorized to list registry tags. Please make sure that
+            the included bearer token is correct.
+
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+                
+        403:
+          description: >
+            Your API token may not have the required permissions to invoke this endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /application/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The name of the application.
+
+    put:
+      operationId: edit-application
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EditApplicationRequestBody'
+
+      responses:
+        204:
+          description: This application has successfully been edited.
+
+        401:
+          description: |
+            You are not authorized to perform this request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+        404:
+          description: |
+            Could not find the application or an entity referenced in the body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /region:
+    get:
+      operationId: list-regions
+      summary: List the collection of regions.
+      responses:
+        200:
+          description: Ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListRegionsResponseBody'
+
+        401:
+          description: |
+            You are not authorized to list regions. Please make sure that
+            the included bearer token is correct.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+                
+        403:
+          description: >
+            Your API token may not have the required permissions to invoke this endpoint.
           content:
             application/json:
               schema:
@@ -459,6 +855,8 @@ paths:
         This includes an IPV4 address that you may send ICMP ping messages to, 
         to figure out the latency to this location. Please do not cache this list 
         anywhere as it may change.
+      security:
+        - api-token: ['regions:read']
       responses:
         200:
           description: Ok
@@ -471,6 +869,14 @@ paths:
           description: |
             You are not authorized to list available locations. Please make sure that
             the included bearer token is correct.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+                
+        403:
+          description: >
+            Your API token may not have the required permissions to invoke this endpoint.
           content:
             application/json:
               schema:
@@ -507,6 +913,8 @@ paths:
     get:
       operationId: tag-exists
       summary: Check if tag exists in the Gameye fleet
+      security:
+        - api-token: ['regions:read']
       responses:
         200:
           description: Ok
@@ -531,6 +939,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+                
+        403:
+          description: >
+            Your API token may not have the required permissions to invoke this endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
         404:
           description: |
@@ -546,6 +962,8 @@ paths:
       summary: Get logs
       description: >
         Streams the output that the game server writes. You can use it to debug server issues.
+      security:
+        - api-token: ['logs:read']
 
       parameters:
         - name: id
@@ -568,6 +986,7 @@ paths:
         200:
           content:
             text/plain: {}
+
         401:
           description: >
             You are not authorized. Make sure your bearer token is correct.
@@ -575,6 +994,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+                
+        403:
+          description: >
+            Your API token may not have the required permissions to invoke this endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
         404:
           description: |
             That session doesn't seem to exist. Double-check the ID.
@@ -648,7 +1076,7 @@ components:
         - shuttingdown
         - server_unreachable
 
-    SessionRun:
+    SessionRunBody:
       type: object
       additionalProperties: false
       required:
@@ -665,22 +1093,20 @@ components:
         location:
           type: string
           description: >
-            The location or region that the game session is preferred to
-            be hosted in.
+            The region the game session is to be hosted in.
           minLength: 1
           example: europe
         image:
           type: string
           description: >
-            The name of the image of the game to host inside a
-            container.
+            The name of the application.
           minLength: 1
           example: nginx
         env:
           type: object
           description: >
-            The list of environment variables to feed the container on
-            startup.
+            The list of environment variables to feed the underlying container on startup.
+            This field is ignored when a container is claimed from a warm pool.
           additionalProperties:
             type: string
             minLength: 1
@@ -690,8 +1116,9 @@ components:
         args:
           type: array
           description: >
-            The list of program console arguments to feed to the
-            application hosted inside the underlying container.
+            The list of program console arguments to feed to the application hosted inside 
+            the underlying container. This field is ignored when a container is claimed 
+            from a warm pool.
           items:
             type: string
             minLength: 1
@@ -700,11 +1127,9 @@ components:
             - '--match-type=quick-play'
         restart:
           description: >
-            Indicates whether this session must be automatically
-            restarted on failure.
-
-            The underlying container will not be restarted in case of a manual
-            termination.
+            Indicates whether this session must be automatically restarted on failure. The 
+            underlying container will not be restarted in case of a manual termination.
+            This field is ignored when a container is claimed from a warm pool.
           type: boolean
           example: false
         labels:
@@ -712,8 +1137,8 @@ components:
           additionalProperties:
             type: string
           description: >
-            The collection of user-defined key/value metadata stored
-            inside the configuration of the session.
+            A collection of user-defined key/value metadata. This field is ignored in 
+            case a container is claimed from a warm pool.
           x-go-type-skip-optional-pointer: true
           example:
             labels:
@@ -724,7 +1149,37 @@ components:
           description: >
             Tag of the image that the session will be run. This tag
             needs to be available or a 404 will be thrown. If not specified 
-            run the tag with the highest priority.
+            run the tag with the highest priority. This field is ignored when a 
+            container is claimed from a warm pool.
+        ttl:
+          type: string
+          description: >
+            The amount of time a container should live for until it is
+            to be automatically (and forcefully) terminated. Valid time
+            units are 'm' and 'h'. Any value than a minute will be rounded
+            up to a minute.
+          examples:
+            one_hour:
+              value: 1h
+              description: >
+                The underlying container will be forcefully terminated
+                after an hour.
+
+            two_and_a_half_hours:
+              value: 2h30m
+              description: >
+                The underlying container will be forcefully terminated
+                after a lifetime of two and a half hours.
+
+            minute:
+              value: 1m
+              description: >
+                The underlying container will be forcefully terminated
+                after a minute.
+        external_id:
+          type: string
+          description: >
+            An optional customer-provided identifier for this session.
               
       example:
         id: f7965a22-e327-4541-a30e-8262890d3a29
@@ -739,7 +1194,7 @@ components:
           another-example-tag: '3'
         restart: false
 
-    SessionRunOk:
+    SessionRunOkBody:
       type: object
       additionalProperties: false
       required:
@@ -789,7 +1244,7 @@ components:
           items:
             type: string
 
-    JoinSessionOk:
+    JoinSessionOkBody:
       type: object
       additionalProperties: false
       required:
@@ -820,7 +1275,7 @@ components:
           items:
             type: string
 
-    LeaveSessionOk:
+    LeaveSessionOkBody:
       type: object
       additionalProperties: false
       required:
@@ -867,7 +1322,7 @@ components:
           minimum: 1
           maximum: 65535
 
-    SessionListOk:
+    SessionListOkBody:
       type: object
       additionalProperties: false
       required:
@@ -1066,6 +1521,253 @@ components:
           type: integer
           x-order: 10
 
+    ListRegionsResponseBody:
+      type: object
+      additionalProperties: false
+      required:
+      - regions
+      properties:
+        regions:
+          type: array
+          items:
+            type: string
+
+    CreateTokenRequestBody:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - scopes
+      properties:
+        name:
+          type: string
+          description: |
+            The name of the token to be created.
+        scopes:
+          type: array
+          description: |
+            The list of scopes that the token should be created with.
+          items:
+            type: string
+        expires_after:
+          type: string
+          description: |
+            The time after which the token should expire. Valid time units are 'm' and 'h'.
+            Values equal to less than a minute will be rounded up to a minute.
+          examples:
+            one_hour:
+              value: 1h
+              description: >
+                The token will expire after an hour.
+
+            two_and_a_half_hours:
+              value: 2h30m
+              description: >
+                The token will expire after two and a half hours.
+
+            minute:
+              value: 1m
+              description: >
+                The token will expire after a minute.
+
+    TokenCreatedResponseBody:
+      type: object
+      additionalProperties: false
+      required:
+      - token
+      properties:
+        token:
+          type: string
+
+    CreateApplicationRequestBody:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - registry
+      - repository
+      - tagKeep
+      - networkMode
+      - reservation
+      - limits
+      - ports
+      - regions
+      - nodePool
+      properties:
+        name:
+          type: string
+          description: |
+            The name of this application.
+          example: nginx
+        registry:
+          type: string
+          example: dockerhub
+        repository:
+          type: string
+        tagKeep:
+          type: integer
+        networkMode:
+          type: string
+        limits:
+          $ref: '#/components/schemas/Limits'
+        reservation:
+          $ref: '#/components/schemas/Reservation'
+        nodePool:
+          type: string
+        regions:
+          type: array
+          items:
+            type: string
+        ports:
+          type: array
+          items:
+            $ref: '#/components/schemas/PortBinding'
+
+    CreateApplicationResponseBody:
+      type: object
+      additionalProperties: false
+      
+    EditApplicationRequestBody:
+      type: object
+      additionalProperties: false
+      properties:
+        repository:
+          type: string
+        tagKeep:
+          type: integer
+        networkMode:
+          type: string
+        limits:
+          $ref: '#/components/schemas/Limits'
+        reservation:
+          $ref: '#/components/schemas/Reservation'
+        registry:
+          type: string
+        nodePool:
+          type: string
+        regions:
+          type: array
+          items:
+            type: string
+        ports:
+          type: array
+          items:
+            $ref: '#/components/schemas/PortBinding'
+
+    EnableApplicationTagRequestBody:
+      type: object
+      additionalProperties: false
+      required:
+      - tag
+      properties:
+        tag:
+          type: string    
+
+    ListApplicationsResponseBody:
+      type: object
+      additionalProperties: false
+      required:
+      - applications
+      properties:
+        applications:
+          type: array
+          items:
+            $ref: '#/components/schemas/ListedApplication'
+        
+    ListedApplication:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - repository
+      - tagKeep
+      - networkMode
+      - reservation
+      - limits
+      - ports
+      - regions
+      properties:
+        name:
+          type: string
+          description: |
+            The name of this application.
+          example: nginx
+          x-order: 1
+        repository:
+          type: string
+          x-order: 2
+        tagKeep:
+          type: integer
+          x-order: 3
+        networkMode:
+          type: string
+          x-order: 4
+        limits:
+          $ref: '#/components/schemas/Limits'
+          x-order: 5
+        reservation:
+          $ref: '#/components/schemas/Reservation'
+          x-order: 6
+        registry:
+          type: string
+          x-order: 7
+        nodePool:
+          type: string
+          x-order: 9
+        regions:
+          type: array
+          items:
+            type: string
+          x-order: 10
+        ports:
+          type: array
+          items:
+            $ref: '#/components/schemas/PortBinding'
+          x-order: 11
+
+    Limits:
+      type: object
+      additionalProperties: false
+      required:
+      - cpu
+      - ram
+      properties:
+        cpu:
+          type: number
+        ram:
+          type: number
+        gpu:
+          type: number
+
+    Reservation:
+      type: object
+      additionalProperties: false
+      required:
+      - cpu
+      - ram
+      properties:
+        cpu:
+          type: number
+        ram:
+          type: number
+        gpu:
+          type: number
+
+    PortBinding:
+      type: object
+      additionalProperties: false
+      required:
+      - requested
+      - protocol
+      - tls
+      properties:
+        requested:
+          type: integer
+        protocol:
+          type: string
+        tls:
+          type: boolean
+
     AvailableLocationsOk:
       type: object
       additionalProperties: false
@@ -1091,6 +1793,25 @@ components:
             type: string
             description: >
               The list of IPV4 addresses that can be pinged.
+
+    ListApplicationRegistryTagsResponseBody:
+      type: object
+      additionalProperties: false
+      required:
+      - tags
+      properties:
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/RegistryTag'
+
+    RegistryTag:
+      type: object
+      required:
+      - version
+      properties:
+        version:
+          type: string
 
     TagOk:
       type: object
