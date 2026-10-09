@@ -22,15 +22,19 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.example
+    # GAMEYE_API_TOKEN comes from .env (copy .env.example) and reaches Nakama
+    # only at run time, never the image.
+    env_file:
+      - .env
     depends_on:
       postgres:
         condition: service_healthy
     entrypoint:
       - "/bin/sh"
-      - "-ecx"
+      - "-ec"
       - >
         /nakama/nakama migrate up --database.address postgres:localdb@postgres:5432/nakama &&
-        exec /nakama/nakama --config /nakama/data/local.yml --database.address postgres:localdb@postgres:5432/nakama
+        exec /nakama/nakama --config /nakama/data/local.yml --database.address postgres:localdb@postgres:5432/nakama --runtime.env "GAMEYE_API_TOKEN=$${GAMEYE_API_TOKEN}"
     expose:
       - "7349"
       - "7350"

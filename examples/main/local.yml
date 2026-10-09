@@ -1,5 +1,9 @@
 # Nakama config for the example plugin. Replace the placeholders with your
 # Gameye details; see the README's Configuration section.
+#
+# Don't put your API token here: this file is tracked and is copied into the
+# Docker image. compose.yml passes GAMEYE_API_TOKEN from your gitignored .env
+# with --runtime.env, which Nakama adds to the runtime.env list below.
 name: nakama-node-1
 data_dir: "./data/"
 
@@ -9,7 +13,6 @@ logger:
 runtime:
   env:
     - "GAMEYE_API_URL=https://api.sandbox-gameye.gameye.net"
-    - "GAMEYE_API_TOKEN=replace-with-your-api-token"
     - "GAMEYE_API_IMAGE=replace-with-your-application"
     - "GAMEYE_API_IMAGE_VERSION=replace-with-your-image-tag"
     - "GAMEYE_API_REGION=replace-with-a-region"

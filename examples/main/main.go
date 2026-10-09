@@ -15,8 +15,10 @@ import (
 	"github.com/heroiclabs/nakama-common/runtime"
 )
 
-// Nakama runtime.env keys read by InitModule. TTL and PORT are optional; URL
-// defaults to Gameye's production Session API.
+// Nakama runtime.env keys read by InitModule. TTL and PORT are optional. URL
+// defaults to Gameye's self-serve Session API (gameye.DefaultBaseUrl,
+// https://api.sandbox-gameye.gameye.net); production contracts set
+// https://api.production-gameye.gameye.net.
 const (
 	envUrl          = "GAMEYE_API_URL"
 	envToken        = "GAMEYE_API_TOKEN"

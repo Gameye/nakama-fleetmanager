@@ -462,13 +462,16 @@ func portMap(in map[string]float32) map[string]int {
 	return out
 }
 
+// decodeBody decodes a success response. A decode error reports only the body's
+// length: success bodies can carry container env (labels.env), which must not
+// reach logs.
 func decodeBody(body io.Reader, v any) error {
 	b, err := io.ReadAll(body)
 	if err != nil {
 		return err
 	}
 	if err := json.Unmarshal(b, v); err != nil {
-		return fmt.Errorf("%w: body: %s", err, truncate(b))
+		return fmt.Errorf("%w (response body: %d bytes)", err, len(b))
 	}
 	return nil
 }

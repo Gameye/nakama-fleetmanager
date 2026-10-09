@@ -147,3 +147,28 @@ func TestInitStartsOneReaper(t *testing.T) {
 		t.Fatalf("a second Init must not start another reaper")
 	}
 }
+
+// Gameye keeps listing a session after it stops. Only running, draining and
+// shutting-down sessions keep their rows.
+func TestReapDeletesExitedRowsAndKeepsDraining(t *testing.T) {
+	fapi := newFakeApi()
+	fapi.listFn = func(context.Context, gameye.SessionList) ([]gameye.SessionListEntry, error) {
+		return []gameye.SessionListEntry{
+			{ID: "exited", Status: "exited"},
+			{ID: "draining", Status: "draining"},
+		}, nil
+	}
+	fm, store, _ := newTestFleetManager(t, testConfig(), fapi)
+	store.put(t, &runtime.InstanceInfo{Id: "exited"})
+	store.put(t, &runtime.InstanceInfo{Id: "draining"})
+
+	if err := fm.reap(context.Background()); err != nil {
+		t.Fatalf("reap: %v", err)
+	}
+	if store.stored(t, "exited") != nil {
+		t.Fatalf("row for an exited session was kept")
+	}
+	if store.stored(t, "draining") == nil {
+		t.Fatalf("row for a draining session was deleted")
+	}
+}

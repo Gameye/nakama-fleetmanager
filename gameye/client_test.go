@@ -359,3 +359,22 @@ func TestSessionListAndDescribeReturnLabels(t *testing.T) {
 		t.Fatalf("labels = %v", session.Labels)
 	}
 }
+
+// A success body that fails to decode may hold container env (labels.env), so
+// the decode error must report only its size, never its text.
+func TestMalformedSuccessBodyKeepsEnvOutOfError(t *testing.T) {
+	const secret = "s3cret-env-value"
+	body := `{"sessions":[{"id":"a","status":"running","labels":{"env":"{\"API_KEY\":\"` + secret + `\"}","tags":{}}}]`
+	_, client := newFakeServer(t, http.StatusOK, body)
+
+	_, err := client.SessionList(context.Background(), SessionList{})
+	if err == nil {
+		t.Fatalf("SessionList accepted a malformed body")
+	}
+	if strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), "API_KEY") {
+		t.Fatalf("decode error leaks the body: %v", err)
+	}
+	if !strings.Contains(err.Error(), itoa(len(body))+" bytes") {
+		t.Fatalf("decode error should report the body length (%d bytes): %v", len(body), err)
+	}
+}

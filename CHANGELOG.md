@@ -13,6 +13,10 @@ First tagged release. Requires Nakama 3.39.0 or later.
 - **`Create` with user ids joins them.** The callback receives `InstanceInfo` and one `SessionInfo` per user, so callers no longer call `Join` after `Create`.
 - **Ports are a map.** `gameye.Session` and `gameye.SessionListEntry` replace `Port int` with `Ports map[string]int`, keyed by `"<container port>/<protocol>"`. Use `gameye.HostPort` to pick one. The fleet manager picks the host port for `GameyeConfig.Port`, or the lowest exposed container port when it is empty.
 - **Error sentinels.** API errors are `*gameye.ApiError` values that wrap `ErrUnauthorized` (401), `ErrQuotaExceeded` (402), `ErrForbidden` (403), `ErrNotFound` (404), `ErrNoCapacity` (420) or `ErrInternalServer` (5xx). `ErrRanOutOfCompute` is a deprecated alias of `ErrNoCapacity`.
+- **`ApiError.Error()` text changed.** It used to return the bare message; it now reads `gameye api error <status>: <message>: <details>`. Match errors with `errors.Is` against the sentinels above, not on the message text.
+- **`Delete` is idempotent.** `SessionStop`, and so `Delete`, returns nil when Gameye answers 404 (unknown session) or 409 (already stopped). Previously both returned an `*ApiError`, so callers that detected a missing session from `Delete`'s error no longer see one.
+- **`Create` validates metadata.** It returns an error, without starting a session, for the metadata key `"env"` (pass container env under `"gameye.env"`), for a non-string `"gameye.external_id"`, and for a `"gameye.env"` value that isn't a map of non-empty strings. Previously every metadata key, these included, was sent as a label.
+- **Generated client types renamed.** `pkg/api/generated/openapi/client` is regenerated: request and response bodies gain a `Body` suffix (`SessionRun` → `SessionRunBody`, `SessionRunOk` → `SessionRunOkBody`, `SessionListOk` → `SessionListOkBody`, `JoinSessionOk` → `JoinSessionOkBody`, `LeaveSessionOk` → `LeaveSessionOkBody`). This only affects code that imports the generated package directly; code that uses the `gameye` and `fleetmanager` packages is not affected by the rename.
 
 ### Added
 

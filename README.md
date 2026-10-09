@@ -193,7 +193,7 @@ The fleet manager stores each running session in the Nakama storage collection `
 
 [`compose.yml`](./compose.yml) builds [`examples/main`](./examples/main) with the Nakama 3.41.0 plugin builder and runs it with PostgreSQL 16.
 
-1. Put your token, application, tag and region into [`examples/main/local.yml`](./examples/main/local.yml).
+1. Copy [`.env.example`](./.env.example) to `.env` and set `GAMEYE_API_TOKEN`. `.env` is gitignored, and compose passes the token to Nakama at run time, so it stays out of git and the image. Put your application, tag and region into [`examples/main/local.yml`](./examples/main/local.yml).
 2. Build and start:
 
    ```sh
@@ -218,8 +218,8 @@ go test -race -count=1 ./...
 Build the example plugin the way CI does:
 
 ```sh
-docker run --rm -v "$PWD":/src -w /src/examples/main heroiclabs/nakama-pluginbuilder:3.41.0 \
-  sh -c 'go mod vendor && go build --trimpath --mod=vendor --buildmode=plugin -o backend.so .'
+docker run --rm -v "$PWD":/src -w /src/examples/main --entrypoint sh heroiclabs/nakama-pluginbuilder:3.41.0 \
+  -c 'go mod vendor && go build --trimpath --mod=vendor --buildmode=plugin -o backend.so .'
 ```
 
 Regenerate the API client after changing [`api/openapi/client.yaml`](./api/openapi/client.yaml):

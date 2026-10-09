@@ -324,6 +324,47 @@ func TestConfigDefaultsAndValidation(t *testing.T) {
 	}
 }
 
+func TestNewGameyeFleetManagerAppliesDefaults(t *testing.T) {
+	cfg := testConfig()
+	cfg.BaseUrl = ""
+	fm, err := NewGameyeFleetManager(context.Background(), cfg, nopLogger{}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewGameyeFleetManager: %v", err)
+	}
+	if fm.config.BaseUrl != gameye.DefaultBaseUrl {
+		t.Errorf("BaseUrl = %q, want %q", fm.config.BaseUrl, gameye.DefaultBaseUrl)
+	}
+	if fm.config.Ttl != DefaultTtl {
+		t.Errorf("Ttl = %q, want %q", fm.config.Ttl, DefaultTtl)
+	}
+	if fm.config.CreateTimeout != DefaultCreateTimeout {
+		t.Errorf("CreateTimeout = %v, want %v", fm.config.CreateTimeout, DefaultCreateTimeout)
+	}
+	if fm.config.ReapInterval != DefaultReapInterval {
+		t.Errorf("ReapInterval = %v, want %v", fm.config.ReapInterval, DefaultReapInterval)
+	}
+	if fm.apiClient == nil {
+		t.Errorf("apiClient not set")
+	}
+}
+
+func TestNewGameyeFleetManagerJoinsValidationErrors(t *testing.T) {
+	cfg := GameyeConfig{Port: "7360", Ttl: "30s", CreateTimeout: -time.Second}
+	fm, err := NewGameyeFleetManager(context.Background(), cfg, nopLogger{}, nil, nil, nil)
+	if fm != nil {
+		t.Fatalf("got a fleet manager for an invalid config")
+	}
+	for _, want := range []error{ErrNoApiToken, ErrNoRegion, ErrNoImage, ErrNoVersion, ErrInvalidPort, ErrInvalidTtl, ErrInvalidTimeout} {
+		if !errors.Is(err, want) {
+			t.Errorf("err does not wrap %v: %v", want, err)
+		}
+	}
+	// An empty BaseUrl gets the default, so it is not an error.
+	if errors.Is(err, ErrNoBaseUrl) {
+		t.Errorf("empty BaseUrl reported as missing: %v", err)
+	}
+}
+
 // --- Get -------------------------------------------------------------------
 
 func describeAs(status gameyeApi.SessionStatus) func(ctx context.Context, req gameye.SessionDescribe) (*gameye.Session, error) {
