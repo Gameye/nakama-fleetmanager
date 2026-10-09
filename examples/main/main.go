@@ -1,122 +1,160 @@
+// Command main is an example Nakama plugin that starts a Gameye session for
+// every matchmaker match and tells the matched players where to connect.
 package main
 
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Gameye/nakama-fleetmanager/fleetmanager"
+	"github.com/Gameye/nakama-fleetmanager/gameye"
 	"github.com/heroiclabs/nakama-common/runtime"
 )
 
+// Nakama runtime.env keys read by InitModule. TTL and PORT are optional. URL
+// defaults to Gameye's self-serve Session API (gameye.DefaultBaseUrl,
+// https://api.sandbox-gameye.gameye.net); production contracts set
+// https://api.production-gameye.gameye.net.
 const (
-	ENV_GAMEYE_URL           = "GAMEYE_API_URL"
-	ENV_GAMEYE_TOKEN         = "GAMEYE_API_TOKEN"
-	ENV_GAMEYE_IMAGE         = "GAMEYE_API_IMAGE"
-	ENV_GAMEYE_IMAGE_VERSION = "GAMEYE_API_IMAGE_VERSION"
-	ENV_GAMEYE_REGION        = "GAMEYE_API_REGION"
+	envUrl          = "GAMEYE_API_URL"
+	envToken        = "GAMEYE_API_TOKEN"
+	envImage        = "GAMEYE_API_IMAGE"
+	envImageVersion = "GAMEYE_API_IMAGE_VERSION"
+	envRegion       = "GAMEYE_API_REGION"
+	envTtl          = "GAMEYE_API_TTL"
+	envPort         = "GAMEYE_API_PORT"
+)
+
+const (
+	// failedSubject is the subject of the notification players get when no
+	// server could be started for their match.
+	failedSubject = "gameye_failed"
+	failedCode    = fleetmanager.NotificationCode + 1
+
+	// notifyTimeout bounds the notification sent from the Create callback.
+	notifyTimeout = 10 * time.Second
 )
 
 func InitModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, initializer runtime.Initializer) error {
 	start := time.Now()
 
-	envValue := ctx.Value(runtime.RUNTIME_CTX_ENV)
-	if envValue == nil {
-		return fmt.Errorf("nil %v", runtime.RUNTIME_CTX_ENV)
-	}
-
-	env, ok := envValue.(map[string]string)
+	env, ok := ctx.Value(runtime.RUNTIME_CTX_ENV).(map[string]string)
 	if !ok {
-		return runtime.NewError(fmt.Sprintf("unable to cast '%v' to a map", runtime.RUNTIME_CTX_ENV), 3)
+		return runtime.NewError("runtime env is missing", 3)
+	}
+	for _, key := range []string{envToken, envImage, envImageVersion, envRegion} {
+		if env[key] == "" {
+			return runtime.NewError(fmt.Sprintf("missing runtime env var %v", key), 3)
+		}
 	}
 
-	url, exists := env[ENV_GAMEYE_URL]
-	if !exists {
-		return runtime.NewError(fmt.Sprintf("missing nakama runtime env var %v", ENV_GAMEYE_URL), 3)
-	}
-
-	token, exists := env[ENV_GAMEYE_TOKEN]
-	if !exists {
-		return runtime.NewError(fmt.Sprintf("missing nakama runtime env var %v", ENV_GAMEYE_TOKEN), 3)
-	}
-
-	image, exists := env[ENV_GAMEYE_IMAGE]
-	if !exists {
-		return runtime.NewError(fmt.Sprintf("missing nakama runtime env var %v", ENV_GAMEYE_IMAGE), 3)
-	}
-
-	region, exists := env[ENV_GAMEYE_REGION]
-	if !exists {
-		return runtime.NewError(fmt.Sprintf("missing nakama runtime env var %v", ENV_GAMEYE_REGION), 3)
-	}
-
-	version, exists := env[ENV_GAMEYE_IMAGE_VERSION]
-	if !exists {
-		return runtime.NewError(fmt.Sprintf("missing nakama runtime env var %v", ENV_GAMEYE_IMAGE_VERSION), 3)
-	}
-
-	config := fleetmanager.GameyeConfig{
-		BaseUrl:  url,
-		ApiToken: token,
-		Image:    image,
-		Version:  version,
-		Region:   region,
-	}
-
-	fleetManager, err := fleetmanager.NewGameyeFleetManager(ctx, config, logger, db, initializer, nk)
+	fm, err := fleetmanager.NewGameyeFleetManager(ctx, fleetmanager.GameyeConfig{
+		BaseUrl:  env[envUrl],
+		ApiToken: env[envToken],
+		Image:    env[envImage],
+		Version:  env[envImageVersion],
+		Region:   env[envRegion],
+		Ttl:      env[envTtl],
+		Port:     env[envPort],
+	}, logger, db, initializer, nk)
 	if err != nil {
 		return err
 	}
-
-	if err = initializer.RegisterFleetManager(fleetManager); err != nil {
+	if err := initializer.RegisterFleetManager(fm); err != nil {
 		return err
 	}
 
-	initializer.RegisterMatchmakerMatched(func(
+	if err := initializer.RegisterMatchmakerMatched(func(
 		ctx context.Context,
-		logger runtime.Logger,
-		db *sql.DB,
+		_ runtime.Logger,
+		_ *sql.DB,
 		nk runtime.NakamaModule,
 		entries []runtime.MatchmakerEntry,
 	) (string, error) {
-		var userIds []string
+		userIds := make([]string, 0, len(entries))
 		for _, entry := range entries {
 			userIds = append(userIds, entry.GetPresence().GetUserId())
 		}
 
-		onResult := func(
-			status runtime.FmCreateStatus,
-			instanceInfo *runtime.InstanceInfo,
-			sessionInfo []*runtime.SessionInfo,
-			metadata map[string]any, err error,
-		) {
-			switch status {
-			case runtime.CreateSuccess:
-				logger.Info("successfully started session %v", instanceInfo.Id)
+		// The callback runs after this hook has returned, when Nakama has
+		// already cancelled ctx. Never use ctx in it.
+		callback := func(status runtime.FmCreateStatus, instance *runtime.InstanceInfo, _ []*runtime.SessionInfo, _ map[string]any, err error) {
+			notifyCtx, cancel := context.WithTimeout(context.Background(), notifyTimeout)
+			defer cancel()
 
-				_, err := fleetManager.Join(ctx, instanceInfo.Id, userIds, make(map[string]string))
-				if err != nil {
-					logger.Error(err.Error(), "failed to make players join")
-					return
+			if status == runtime.CreateSuccess {
+				// Create has already joined the players to the session.
+				// Persistent, so a client that reconnects can still find it.
+				if err := fleetmanager.NotifyConnectionInfo(notifyCtx, nk, userIds, instance, nil, true); err != nil {
+					logger.Error("notifying players of session %v: %v", instance.Id, err)
 				}
+				return
+			}
 
-				logger.Info("successfully registered players %v to session %v", userIds, instanceInfo.Id)
-
-			case runtime.CreateError:
-				logger.Info("failed to start a session")
+			reason := failureReason(status, err)
+			logger.Warn("no game server for players %v (%v): %v", userIds, reason, err)
+			if err := notifyFailed(notifyCtx, nk, userIds, reason); err != nil {
+				logger.Error("notifying players of the failed session: %v", err)
 			}
 		}
 
-		err := fleetManager.Create(ctx, len(userIds), userIds, nil, make(map[string]any), onResult)
-		if err != nil {
-			logger.Error(err.Error())
+		metadata := map[string]any{
+			// Shows up as the session's external id in Gameye, so the
+			// session can be traced back to the matchmaker ticket.
+			fleetmanager.MetadataKeyExternalId: entries[0].GetTicket(),
+			// Passed to the game server container as environment variables.
+			fleetmanager.MetadataKeyEnv: map[string]string{
+				"NAKAMA_MATCH_USER_IDS": strings.Join(userIds, ","),
+			},
 		}
 
+		result, err := fm.Create(ctx, len(userIds), userIds, nil, metadata, callback)
+		if err != nil {
+			return "", err
+		}
+		logger.Info("starting gameye session %v for players %v", result[fleetmanager.CreateSessionIdKey], userIds)
+
+		// Players connect to the Gameye server, not to a Nakama match.
 		return "", nil
-	})
+	}); err != nil {
+		return err
+	}
 
 	logger.Info("Successfully registered the Gameye fleet manager which took %v", time.Since(start))
-
 	return nil
+}
+
+// failureReason turns a Create failure into a short reason a client can act on.
+func failureReason(status runtime.FmCreateStatus, err error) string {
+	switch {
+	case status == runtime.CreateTimeout:
+		return "timeout"
+	case errors.Is(err, gameye.ErrNoCapacity):
+		return "no_capacity"
+	case errors.Is(err, gameye.ErrQuotaExceeded):
+		return "quota_exceeded"
+	case errors.Is(err, gameye.ErrUnauthorized), errors.Is(err, gameye.ErrForbidden), errors.Is(err, gameye.ErrNotFound):
+		return "misconfigured"
+	case gameye.IsRetryable(err):
+		return "unavailable"
+	default:
+		return "error"
+	}
+}
+
+func notifyFailed(ctx context.Context, nk runtime.NakamaModule, userIds []string, reason string) error {
+	notifications := make([]*runtime.NotificationSend, 0, len(userIds))
+	for _, userId := range userIds {
+		notifications = append(notifications, &runtime.NotificationSend{
+			UserID:  userId,
+			Subject: failedSubject,
+			Content: map[string]any{"reason": reason},
+			Code:    failedCode,
+		})
+	}
+	return nk.NotificationsSend(ctx, notifications)
 }

@@ -1,14 +1,19 @@
-FROM heroiclabs/nakama-pluginbuilder:3.26.0 AS builder
+# Builds examples/main as a Nakama plugin. The plugin builder and the server
+# must be the same Nakama version.
+ARG NAKAMA_VERSION=3.41.0
 
-ENV GO111MODULE on
-ENV CGO_ENABLED 1
+FROM heroiclabs/nakama-pluginbuilder:${NAKAMA_VERSION} AS builder
+
+ENV CGO_ENABLED=1
 
 WORKDIR /backend
 COPY . .
 
-RUN go build --trimpath --buildmode=plugin -o ./backend.so examples/main/main.go
+WORKDIR /backend/examples/main
+RUN go mod vendor && \
+    go build --trimpath --mod=vendor --buildmode=plugin -o ./backend.so .
 
-FROM heroiclabs/nakama:3.26.0
+FROM heroiclabs/nakama:${NAKAMA_VERSION}
 
-COPY --from=builder /backend/backend.so /nakama/data/modules
-COPY --from=builder /backend/local.yml /nakama/data/
+COPY --from=builder /backend/examples/main/backend.so /nakama/data/modules/
+COPY --from=builder /backend/examples/main/local.yml /nakama/data/

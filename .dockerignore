@@ -1,0 +1,2 @@
+# Keep the API token (from .env) out of the build context and the image.
+.env

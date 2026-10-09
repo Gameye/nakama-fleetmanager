@@ -1,2 +1,4 @@
 .cookie
-local.yml
+/local.yml
+.env
+examples/main/vendor/
