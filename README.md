@@ -233,3 +233,11 @@ go mod tidy && go mod vendor
 CI checks that `go.mod`, `go.sum` and `vendor/` are up to date, and builds the plugin with Nakama 3.39.0 and 3.41.0.
 
 See [CHANGELOG.md](./CHANGELOG.md) for changes between releases.
+
+## About Gameye
+
+[Gameye](https://gameye.com/?utm_source=github&utm_medium=readme&utm_campaign=nakama-fleetmanager) is a managed hosting platform for multiplayer game servers. You bring a container image, and Gameye starts a dedicated server for each match through one API.
+
+- Nakama guide: [gameye.com/docs/guides/integrations/nakama](https://gameye.com/docs/guides/integrations/nakama/?utm_source=github&utm_medium=readme&utm_campaign=nakama-fleetmanager)
+- Gameye docs: [gameye.com/docs](https://gameye.com/docs/?utm_source=github&utm_medium=readme&utm_campaign=nakama-fleetmanager)
+- Try it free: [trial.gameye.com](https://trial.gameye.com/?utm_source=github&utm_medium=readme&utm_campaign=nakama-fleetmanager)
