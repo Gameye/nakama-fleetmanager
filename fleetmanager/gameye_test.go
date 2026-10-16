@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -1011,6 +1012,50 @@ func TestCreateLatencyIgnoresRegionsNotAllUsersReported(t *testing.T) {
 	}, nil)
 	if run.Region != "eu-west-1" {
 		t.Fatalf("Region = %q, want eu-west-1, the only region both users reported", run.Region)
+	}
+}
+
+func TestCreateLatencyFallsBackWhenAUserReportedNothing(t *testing.T) {
+	run := createRegion(t, []string{"u1", "u2"}, []runtime.FleetUserLatencies{lat("u1", "eu-west-1", 30)}, nil)
+	if run.Region != "europe" {
+		t.Fatalf("Region = %q, want the configured region when u2 reported nothing", run.Region)
+	}
+}
+
+func TestCreateLatencyIgnoresInvalidValues(t *testing.T) {
+	nan := float32(math.NaN())
+	inf := float32(math.Inf(1))
+	for name, bad := range map[string]float32{"NaN": nan, "negative": -500, "infinite": inf} {
+		t.Run(name, func(t *testing.T) {
+			for i := 0; i < 20; i++ {
+				run := createRegion(t, []string{"u1", "u2"}, []runtime.FleetUserLatencies{
+					lat("u1", "a", 40), lat("u2", "a", bad),
+					lat("u1", "b", 40), lat("u2", "b", 45),
+				}, nil)
+				if run.Region != "b" {
+					t.Fatalf("Region = %q, want b: the invalid value must not count as a report for a", run.Region)
+				}
+			}
+		})
+	}
+}
+
+func TestCreateLatencyUsesLowestOfRepeatedEntries(t *testing.T) {
+	run := createRegion(t, []string{"u1"}, []runtime.FleetUserLatencies{
+		lat("u1", "a", 90), lat("u1", "a", 10), lat("u1", "b", 20),
+	}, nil)
+	if run.Region != "a" {
+		t.Fatalf("Region = %q, want a (its lowest entry, 10 ms, beats b)", run.Region)
+	}
+}
+
+func TestCreateLatencyWithoutUserIdsUsesEveryReporter(t *testing.T) {
+	run := createRegion(t, nil, []runtime.FleetUserLatencies{
+		lat("u1", "a", 10), lat("u2", "a", 80),
+		lat("u1", "b", 30), lat("u2", "b", 30),
+	}, nil)
+	if run.Region != "b" {
+		t.Fatalf("Region = %q, want b", run.Region)
 	}
 }
 

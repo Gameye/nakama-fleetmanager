@@ -7,7 +7,7 @@ All notable changes to this project are documented here. The project follows [Se
 ### Added
 
 - **Region per match.** The reserved `Create` metadata key `gameye.region` (`MetadataKeyRegion`) starts that session in the given region instead of `GameyeConfig.Region`. It is not sent as a label. A value that is not a non-empty string returns `ErrInvalidRegion` before any API call.
-- **Latency-based placement.** Without `gameye.region`, `Create` uses the latencies Nakama passes in: among the regions every matched user reported, it picks the lowest worst-case latency (ties: lower mean, then region name). With no usable latencies it falls back to `GameyeConfig.Region`.
+- **Latency-based placement.** Without `gameye.region`, `Create` uses the latencies Nakama passes in: among the regions every matched user reported, it picks the lowest worst-case latency (ties: lower mean, then region name). Negative, NaN and infinite values are ignored. If a matched user reported no valid latency, or no region was reported by everyone, it falls back to `GameyeConfig.Region`.
 
 ### Changed
 

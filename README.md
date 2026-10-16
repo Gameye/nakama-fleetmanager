@@ -159,7 +159,7 @@ The key `env` is rejected.
 `Create` starts each session in the first of these that applies:
 
 1. **`metadata["gameye.region"]`.** Use it when your backend picks the region itself, for example from its own RTT measurements.
-2. **The latencies passed to `Create`.** Among the regions that every matched user reported a latency for, `Create` picks the one with the lowest worst-case latency, so no player is left with a bad connection. Ties go to the lower average latency, then to the region name. Latencies from users outside `userIds` are ignored. Region identifiers must be Gameye region ids, such as the `id` values from `GET /available-location/{image}`.
+2. **The latencies passed to `Create`.** Among the regions that every matched user reported a latency for, `Create` picks the one with the lowest worst-case latency, so no player is left with a bad connection. Ties go to the lower average latency, then to the region name. Latencies from users outside `userIds` are ignored, and so are negative, NaN or infinite values. If any user in `userIds` reported no valid latency, `Create` falls back to `GameyeConfig.Region`. With no `userIds`, every user who reported counts. A user's repeated entries for one region count once, at the lowest value. Region identifiers must be Gameye region ids, such as the `id` values from `GET /available-location/{image}`.
 3. **`GameyeConfig.Region`.** Used when neither of the above gives a region.
 
 The region must be one where your application and tag are available. Otherwise Gameye returns 404 and the callback gets `runtime.CreateError`.

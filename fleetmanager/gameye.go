@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"time"
 
@@ -346,51 +347,59 @@ func (fm *GameyeFleetManager) sessionRequest(metadata map[string]any) (gameye.Se
 }
 
 // regionFromLatencies returns the region with the lowest worst-case latency
-// among the regions every user in userIds reported, or "" when there is none.
-// Ties go to the lower mean latency, then to the region name. Users without a
-// latency entry are ignored; with no userIds, every reporting user counts.
+// among the regions every matched user reported, or "" when there is none.
+// Ties go to the lower mean latency, then to the region name. A user in userIds
+// with no valid latency means "", so the caller falls back to its default.
+// With no userIds, every user with a valid latency counts. Latencies that are
+// negative, NaN or infinite are ignored; a user's repeated entries for one
+// region count once, at their lowest value.
 func regionFromLatencies(userIds []string, latencies []runtime.FleetUserLatencies) string {
 	users := make(map[string]bool, len(userIds))
 	for _, id := range userIds {
 		users[id] = true
 	}
 
-	type score struct {
-		users map[string]bool
-		worst float32
-		total float32
-	}
-	byRegion := make(map[string]*score)
+	// byRegion maps region to user to that user's lowest latency there.
+	byRegion := make(map[string]map[string]float32)
 	reporting := make(map[string]bool)
 	for _, l := range latencies {
-		if l.RegionIdentifier == "" || (len(users) > 0 && !users[l.UserId]) {
+		ms := float64(l.LatencyInMilliseconds)
+		if l.RegionIdentifier == "" || !(ms >= 0) || math.IsInf(ms, 1) {
+			continue
+		}
+		if len(users) > 0 && !users[l.UserId] {
 			continue
 		}
 		reporting[l.UserId] = true
-		s := byRegion[l.RegionIdentifier]
-		if s == nil {
-			s = &score{users: make(map[string]bool)}
-			byRegion[l.RegionIdentifier] = s
+		byUser := byRegion[l.RegionIdentifier]
+		if byUser == nil {
+			byUser = make(map[string]float32)
+			byRegion[l.RegionIdentifier] = byUser
 		}
-		if s.users[l.UserId] {
-			continue
+		if prev, ok := byUser[l.UserId]; !ok || l.LatencyInMilliseconds < prev {
+			byUser[l.UserId] = l.LatencyInMilliseconds
 		}
-		s.users[l.UserId] = true
-		s.worst = max(s.worst, l.LatencyInMilliseconds)
-		s.total += l.LatencyInMilliseconds
+	}
+	if len(users) > 0 && len(reporting) < len(users) {
+		return ""
 	}
 
 	best := ""
-	var bestScore *score
-	for region, s := range byRegion {
-		if len(s.users) != len(reporting) {
+	var bestWorst, bestTotal float32
+	for region, byUser := range byRegion {
+		if len(byUser) != len(reporting) {
 			continue
 		}
-		if bestScore == nil ||
-			s.worst < bestScore.worst ||
-			(s.worst == bestScore.worst && s.total < bestScore.total) ||
-			(s.worst == bestScore.worst && s.total == bestScore.total && region < best) {
-			best, bestScore = region, s
+		var worst, total float32
+		for _, ms := range byUser {
+			worst = max(worst, ms)
+			total += ms
+		}
+		if best == "" ||
+			worst < bestWorst ||
+			(worst == bestWorst && total < bestTotal) ||
+			(worst == bestWorst && total == bestTotal && region < best) {
+			best, bestWorst, bestTotal = region, worst, total
 		}
 	}
 	return best
