@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -598,8 +599,8 @@ func TestListFiltersAndRefreshesStorage(t *testing.T) {
 	if len(fapi.lists) != 1 {
 		t.Fatalf("lists = %v", fapi.lists)
 	}
-	if got := fapi.lists[0]; got.Region != "europe" || got.Image != "my-game" || got.Tag != "1.0.0" {
-		t.Fatalf("list filter = %+v, want the configured region, image and tag", got)
+	if got := fapi.lists[0]; got.Region != "" || got.Image != "my-game" || got.Tag != "1.0.0" {
+		t.Fatalf("list filter = %+v, want the configured image and tag in every region", got)
 	}
 	if len(list) != 3 || list[0].Id != "a" || list[0].ConnectionInfo.Port != 21000 || list[0].PlayerCount != 2 {
 		t.Fatalf("list = %+v", list)
@@ -933,5 +934,151 @@ func TestMetadataFromLabelsWithMalformedTags(t *testing.T) {
 	got := metadataFromLabels(map[string]string{"tags": "not json", "gameye": "{}", "env": "{}"})
 	if len(got) != 0 {
 		t.Fatalf("metadata = %v, want empty", got)
+	}
+}
+
+func lat(user, region string, ms float32) runtime.FleetUserLatencies {
+	return runtime.FleetUserLatencies{UserId: user, RegionIdentifier: region, LatencyInMilliseconds: ms}
+}
+
+func createRegion(t *testing.T, userIds []string, latencies []runtime.FleetUserLatencies, metadata map[string]any) gameye.SessionRun {
+	t.Helper()
+	fapi := newFakeApi()
+	fm, _, handler := newTestFleetManager(t, testConfig(), fapi)
+	if _, err := fm.Create(context.Background(), 2, userIds, latencies, metadata, nil); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	handler.wait(t)
+	return fapi.lastRun(t)
+}
+
+func TestCreateMetadataRegionOverridesLatenciesAndConfig(t *testing.T) {
+	run := createRegion(t, nil, []runtime.FleetUserLatencies{lat("u1", "eu-west-1", 10)},
+		map[string]any{MetadataKeyRegion: "ist-1", "mode": "duel"})
+	if run.Region != "ist-1" {
+		t.Fatalf("Region = %q, want ist-1", run.Region)
+	}
+	if _, ok := run.Labels[MetadataKeyRegion]; ok {
+		t.Fatalf("reserved key leaked into labels: %v", run.Labels)
+	}
+}
+
+func TestCreateRejectsInvalidRegionBeforeApiCall(t *testing.T) {
+	for name, region := range map[string]any{"empty": "", "not a string": 7} {
+		t.Run(name, func(t *testing.T) {
+			fapi := newFakeApi()
+			fm, _, _ := newTestFleetManager(t, testConfig(), fapi)
+			_, err := fm.Create(context.Background(), 2, nil, nil, map[string]any{MetadataKeyRegion: region}, nil)
+			if !errors.Is(err, ErrInvalidRegion) {
+				t.Fatalf("err = %v, want ErrInvalidRegion", err)
+			}
+			if fapi.runCount() != 0 {
+				t.Fatalf("no API call expected")
+			}
+		})
+	}
+}
+
+func TestCreatePicksRegionWithLowestWorstLatency(t *testing.T) {
+	// eu-central-1 has the lowest mean but a 90 ms player; eu-south-1 is fairer.
+	run := createRegion(t, []string{"u1", "u2"}, []runtime.FleetUserLatencies{
+		lat("u1", "eu-central-1", 5), lat("u2", "eu-central-1", 90),
+		lat("u1", "eu-south-1", 40), lat("u2", "eu-south-1", 45),
+	}, nil)
+	if run.Region != "eu-south-1" {
+		t.Fatalf("Region = %q, want eu-south-1", run.Region)
+	}
+}
+
+func TestCreateLatencyTiesBreakOnMeanThenName(t *testing.T) {
+	run := createRegion(t, []string{"u1", "u2"}, []runtime.FleetUserLatencies{
+		lat("u1", "b", 50), lat("u2", "b", 50),
+		lat("u1", "a", 50), lat("u2", "a", 50),
+		lat("u1", "c", 50), lat("u2", "c", 10),
+	}, nil)
+	if run.Region != "c" {
+		t.Fatalf("Region = %q, want c (same worst, lower mean)", run.Region)
+	}
+	run = createRegion(t, []string{"u1"}, []runtime.FleetUserLatencies{lat("u1", "b", 20), lat("u1", "a", 20)}, nil)
+	if run.Region != "a" {
+		t.Fatalf("Region = %q, want a (full tie goes to the name)", run.Region)
+	}
+}
+
+func TestCreateLatencyIgnoresRegionsNotAllUsersReported(t *testing.T) {
+	run := createRegion(t, []string{"u1", "u2"}, []runtime.FleetUserLatencies{
+		lat("u1", "eu-central-1", 5),
+		lat("u1", "eu-west-1", 30), lat("u2", "eu-west-1", 35),
+	}, nil)
+	if run.Region != "eu-west-1" {
+		t.Fatalf("Region = %q, want eu-west-1, the only region both users reported", run.Region)
+	}
+}
+
+func TestCreateLatencyFallsBackWhenAUserReportedNothing(t *testing.T) {
+	run := createRegion(t, []string{"u1", "u2"}, []runtime.FleetUserLatencies{lat("u1", "eu-west-1", 30)}, nil)
+	if run.Region != "europe" {
+		t.Fatalf("Region = %q, want the configured region when u2 reported nothing", run.Region)
+	}
+}
+
+func TestCreateLatencyIgnoresInvalidValues(t *testing.T) {
+	nan := float32(math.NaN())
+	inf := float32(math.Inf(1))
+	for name, bad := range map[string]float32{"NaN": nan, "negative": -500, "infinite": inf} {
+		t.Run(name, func(t *testing.T) {
+			for i := 0; i < 20; i++ {
+				run := createRegion(t, []string{"u1", "u2"}, []runtime.FleetUserLatencies{
+					lat("u1", "a", 40), lat("u2", "a", bad),
+					lat("u1", "b", 40), lat("u2", "b", 45),
+				}, nil)
+				if run.Region != "b" {
+					t.Fatalf("Region = %q, want b: the invalid value must not count as a report for a", run.Region)
+				}
+			}
+		})
+	}
+}
+
+func TestCreateLatencyUsesLowestOfRepeatedEntries(t *testing.T) {
+	run := createRegion(t, []string{"u1"}, []runtime.FleetUserLatencies{
+		lat("u1", "a", 90), lat("u1", "a", 10), lat("u1", "b", 20),
+	}, nil)
+	if run.Region != "a" {
+		t.Fatalf("Region = %q, want a (its lowest entry, 10 ms, beats b)", run.Region)
+	}
+}
+
+func TestCreateLatencyWithoutUserIdsUsesEveryReporter(t *testing.T) {
+	run := createRegion(t, nil, []runtime.FleetUserLatencies{
+		lat("u1", "a", 10), lat("u2", "a", 80),
+		lat("u1", "b", 30), lat("u2", "b", 30),
+	}, nil)
+	if run.Region != "b" {
+		t.Fatalf("Region = %q, want b", run.Region)
+	}
+}
+
+func TestCreateLatencyIgnoresOtherUsers(t *testing.T) {
+	run := createRegion(t, []string{"u1"}, []runtime.FleetUserLatencies{
+		lat("u1", "eu-west-1", 30), lat("u1", "eu-central-1", 20),
+		lat("stranger", "eu-central-1", 500),
+	}, nil)
+	if run.Region != "eu-central-1" {
+		t.Fatalf("Region = %q, want eu-central-1", run.Region)
+	}
+}
+
+func TestCreateFallsBackToConfiguredRegion(t *testing.T) {
+	for name, latencies := range map[string][]runtime.FleetUserLatencies{
+		"no latencies":     nil,
+		"no common region": {lat("u1", "eu-west-1", 30), lat("u2", "eu-central-1", 30)},
+		"empty region ids": {lat("u1", "", 30), lat("u2", "", 30)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if run := createRegion(t, []string{"u1", "u2"}, latencies, nil); run.Region != "europe" {
+				t.Fatalf("Region = %q, want the configured region europe", run.Region)
+			}
+		})
 	}
 }

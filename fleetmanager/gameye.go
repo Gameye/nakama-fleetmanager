@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"time"
 
@@ -33,6 +34,12 @@ const (
 	// returned as instance metadata or written to Nakama storage. Gameye
 	// ignores env when a warm pool serves the session.
 	MetadataKeyEnv = "gameye.env"
+
+	// MetadataKeyRegion is a reserved Create metadata key. A non-empty string
+	// value is the Gameye region (location id) to start this session in,
+	// overriding both the latencies passed to Create and GameyeConfig.Region.
+	// It is not sent as a label.
+	MetadataKeyRegion = "gameye.region"
 
 	// labelKeyEnv is the label in which Gameye may echo the container env. It
 	// is stripped from instance metadata and rejected as a Create metadata key.
@@ -71,6 +78,7 @@ var (
 	ErrInvalidTtl       = errors.New(`invalid ttl: use hours and/or minutes, e.g. "30m", "2h" or "1h30m"`)
 	ErrInvalidTimeout   = errors.New("create timeout must not be negative")
 	ErrInvalidEnv       = errors.New("invalid env: names and values must be non-empty strings")
+	ErrInvalidRegion    = errors.New("invalid region: must be a non-empty string")
 )
 
 var (
@@ -83,9 +91,11 @@ type GameyeConfig struct {
 	// https://api.sandbox-gameye.gameye.net (gameye.DefaultBaseUrl).
 	BaseUrl  string
 	ApiToken string
-	Region   string
-	Image    string
-	Version  string
+	// Region is the default Gameye region. Create uses it when the metadata
+	// names no region and the latencies give no region every user reported.
+	Region  string
+	Image   string
+	Version string
 
 	// Ttl is the maximum lifetime of each session, in hours and/or minutes
 	// ("30m", "2h", "1h30m"). Empty means DefaultTtl.
@@ -237,6 +247,9 @@ func (fm *GameyeFleetManager) Init(
 // returns), bounded by GameyeConfig.CreateTimeout. The callback then receives
 // CreateSuccess with the instance, CreateTimeout, or CreateError.
 //
+// The session's region is, in order: metadata[MetadataKeyRegion], the region
+// chosen from latencies (see regionFromLatencies), or GameyeConfig.Region.
+//
 // With userIds, Create also joins those users to the session before the
 // callback, which then receives one SessionInfo per user; if the join fails
 // the session is stopped and the callback receives CreateError. The instance's
@@ -254,6 +267,12 @@ func (fm *GameyeFleetManager) Create(
 	if err != nil {
 		return nil, err
 	}
+	if requestBody.Region == "" {
+		requestBody.Region = regionFromLatencies(userIds, latencies)
+	}
+	if requestBody.Region == "" {
+		requestBody.Region = fm.config.Region
+	}
 
 	id := fm.callbackHandler.GenerateCallbackId()
 	requestBody.ID = id
@@ -268,11 +287,11 @@ func (fm *GameyeFleetManager) Create(
 }
 
 // sessionRequest splits Create metadata into the session start request and
-// the instance metadata. Reserved keys (MetadataKeyExternalId, MetadataKeyEnv)
-// go to the request only; every other key becomes a label and instance
-// metadata. Env never reaches labels or the returned metadata.
+// the instance metadata. Reserved keys (MetadataKeyExternalId, MetadataKeyEnv,
+// MetadataKeyRegion) go to the request only; every other key becomes a label
+// and instance metadata. Env never reaches labels or the returned metadata.
 func (fm *GameyeFleetManager) sessionRequest(metadata map[string]any) (gameye.SessionRun, map[string]any, error) {
-	var externalId string
+	var externalId, region string
 	var metadataEnv map[string]string
 	labels := make(map[string]string)
 	var instanceMetadata map[string]any
@@ -285,6 +304,13 @@ func (fm *GameyeFleetManager) sessionRequest(metadata map[string]any) (gameye.Se
 				return gameye.SessionRun{}, nil, fmt.Errorf("metadata %q must be a string, got %T", MetadataKeyExternalId, rawValue)
 			}
 			externalId = value
+
+		case MetadataKeyRegion:
+			value, ok := rawValue.(string)
+			if !ok || value == "" {
+				return gameye.SessionRun{}, nil, fmt.Errorf("metadata %q: %w, got %T", MetadataKeyRegion, ErrInvalidRegion, rawValue)
+			}
+			region = value
 
 		case MetadataKeyEnv:
 			env, err := parseEnv(rawValue)
@@ -310,7 +336,7 @@ func (fm *GameyeFleetManager) sessionRequest(metadata map[string]any) (gameye.Se
 	}
 
 	return gameye.SessionRun{
-		Region:     fm.config.Region,
+		Region:     region,
 		Image:      fm.config.Image,
 		Tag:        fm.config.Version,
 		Labels:     labels,
@@ -318,6 +344,65 @@ func (fm *GameyeFleetManager) sessionRequest(metadata map[string]any) (gameye.Se
 		Ttl:        fm.config.Ttl,
 		ExternalID: externalId,
 	}, instanceMetadata, nil
+}
+
+// regionFromLatencies returns the region with the lowest worst-case latency
+// among the regions every matched user reported, or "" when there is none.
+// Ties go to the lower mean latency, then to the region name. A user in userIds
+// with no valid latency means "", so the caller falls back to its default.
+// With no userIds, every user with a valid latency counts. Latencies that are
+// negative, NaN or infinite are ignored; a user's repeated entries for one
+// region count once, at their lowest value.
+func regionFromLatencies(userIds []string, latencies []runtime.FleetUserLatencies) string {
+	users := make(map[string]bool, len(userIds))
+	for _, id := range userIds {
+		users[id] = true
+	}
+
+	// byRegion maps region to user to that user's lowest latency there.
+	byRegion := make(map[string]map[string]float32)
+	reporting := make(map[string]bool)
+	for _, l := range latencies {
+		ms := float64(l.LatencyInMilliseconds)
+		if l.RegionIdentifier == "" || !(ms >= 0) || math.IsInf(ms, 1) {
+			continue
+		}
+		if len(users) > 0 && !users[l.UserId] {
+			continue
+		}
+		reporting[l.UserId] = true
+		byUser := byRegion[l.RegionIdentifier]
+		if byUser == nil {
+			byUser = make(map[string]float32)
+			byRegion[l.RegionIdentifier] = byUser
+		}
+		if prev, ok := byUser[l.UserId]; !ok || l.LatencyInMilliseconds < prev {
+			byUser[l.UserId] = l.LatencyInMilliseconds
+		}
+	}
+	if len(users) > 0 && len(reporting) < len(users) {
+		return ""
+	}
+
+	best := ""
+	var bestWorst, bestTotal float32
+	for region, byUser := range byRegion {
+		if len(byUser) != len(reporting) {
+			continue
+		}
+		var worst, total float32
+		for _, ms := range byUser {
+			worst = max(worst, ms)
+			total += ms
+		}
+		if best == "" ||
+			worst < bestWorst ||
+			(worst == bestWorst && total < bestTotal) ||
+			(worst == bestWorst && total == bestTotal && region < best) {
+			best, bestWorst, bestTotal = region, worst, total
+		}
+	}
+	return best
 }
 
 func labelValue(rawValue any) (string, error) {
@@ -559,10 +644,10 @@ func (fm *GameyeFleetManager) List(
 	limit int,
 	previousCursor string,
 ) (list []*runtime.InstanceInfo, nextCursor string, err error) {
+	// No region filter: Create can start sessions in any region.
 	params := gameye.SessionList{
-		Region: fm.config.Region,
-		Image:  fm.config.Image,
-		Tag:    fm.config.Version,
+		Image: fm.config.Image,
+		Tag:   fm.config.Version,
 	}
 
 	response, err := fm.apiClient.SessionList(ctx, params)

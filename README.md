@@ -10,6 +10,7 @@ It follows the same pattern as Heroic Labs' [GameLift integration](https://githu
 
 | Package | Nakama | nakama-common |
 |---|---|---|
+| v0.2.0 | 3.39.0 or later | v1.46.0 or later |
 | v0.1.0 | 3.39.0 or later | v1.46.0 or later |
 
 The package's `go.mod` requires nakama-common v1.46.0, the release that introduced the current `Create` signature (Nakama 3.39.0). The example in [`examples/main`](./examples/main) and the Docker files are pinned to Nakama 3.41.0 (nakama-common v1.48.0).
@@ -32,7 +33,7 @@ A mismatch fails at startup with errors such as `plugin was built with a differe
 ## Installation
 
 ```sh
-go get github.com/Gameye/nakama-fleetmanager@v0.1.0
+go get github.com/Gameye/nakama-fleetmanager@v0.2.0
 ```
 
 Then pin nakama-common to the version your Nakama release uses (see [Compatibility](#compatibility)) and vendor:
@@ -52,7 +53,7 @@ go mod vendor
 | `ApiToken` | `GAMEYE_API_TOKEN` | Yes | | API token with the scopes listed above. |
 | `Image` | `GAMEYE_API_IMAGE` | Yes | | Gameye application name. |
 | `Version` | `GAMEYE_API_IMAGE_VERSION` | Yes | | Image tag to run. |
-| `Region` | `GAMEYE_API_REGION` | Yes | | Region to start sessions in. |
+| `Region` | `GAMEYE_API_REGION` | Yes | | Default region. `Create` uses it when the match names no region and has no usable latencies. See [Choosing the region](#choosing-the-region). |
 | `Ttl` | `GAMEYE_API_TTL` | No | `30m` | Maximum session lifetime, in hours and/or minutes (`30m`, `2h`, `1h30m`). Gameye stops the session when it expires. |
 | `Port` | `GAMEYE_API_PORT` | No | lowest exposed port | Container port players connect to, as `<port>/<tcp\|udp>`. Set it when the image exposes more than one port. |
 | `CreateTimeout` | | No | `60s` | Upper bound on starting a session. On expiry the callback gets `runtime.CreateTimeout`. |
@@ -143,14 +144,25 @@ socket.onnotification = (n) => {
 
 ### Metadata
 
-`Create` metadata keys become Gameye session labels and `InstanceInfo.Metadata`, except two reserved keys:
+`Create` metadata keys become Gameye session labels and `InstanceInfo.Metadata`, except three reserved keys:
 
 | Key | Value | Effect |
 |---|---|---|
 | `gameye.external_id` (`MetadataKeyExternalId`) | `string` | Sent as the session's external id, for tracing a session back to your own ids. |
 | `gameye.env` (`MetadataKeyEnv`) | `map[string]string` | Passed to the container as env. See below. |
+| `gameye.region` (`MetadataKeyRegion`) | non-empty `string` | Region to start this session in. See [Choosing the region](#choosing-the-region). |
 
 The key `env` is rejected.
+
+### Choosing the region
+
+`Create` starts each session in the first of these that applies:
+
+1. **`metadata["gameye.region"]`.** Use it when your backend picks the region itself, for example from its own RTT measurements.
+2. **The latencies passed to `Create`.** Among the regions that every matched user reported a latency for, `Create` picks the one with the lowest worst-case latency, so no player is left with a bad connection. Ties go to the lower average latency, then to the region name. Latencies from users outside `userIds` are ignored, and so are negative, NaN or infinite values. If any user in `userIds` reported no valid latency, `Create` falls back to `GameyeConfig.Region`. With no `userIds`, every user who reported counts. A user's repeated entries for one region count once, at the lowest value. Region identifiers must be Gameye region ids, such as the `id` values from `GET /available-location/{image}`.
+3. **`GameyeConfig.Region`.** Used when neither of the above gives a region.
+
+The region must be one where your application and tag are available. Otherwise Gameye returns 404 and the callback gets `runtime.CreateError`.
 
 ### Passing env to the game server
 
@@ -184,8 +196,7 @@ The fleet manager stores each running session in the Nakama storage collection `
 
 ## Limitations
 
-- **No pagination or queries in `List`.** The Session API has no pagination, so `List` ignores the query, limit and cursor and returns every session for the configured region, application and tag.
-- **No latency-based placement.** `Create` ignores `runtime.FleetUserLatencies` and always starts in the configured region.
+- **No pagination or queries in `List`.** The Session API has no pagination, so `List` ignores the query, limit and cursor and returns every session for the configured application and tag, in every region.
 - **No retry queue.** Sessions start as soon as `Create` is called. If Gameye has no capacity or your quota is used up, the callback gets the error and retrying is up to you.
 - **No backfill helper.** `Join` registers more players with an existing session, but finding a session with free seats and sending those players to it is up to you.
 
