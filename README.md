@@ -1,6 +1,6 @@
 # Nakama Fleet Manager for Gameye
 
-[![CI](https://github.com/Gameye/nakama-fleetmanager/actions/workflows/ci.yml/badge.svg)](https://github.com/Gameye/nakama-fleetmanager/actions/workflows/ci.yml)
+[![CI](https://github.com/Gameye/nakama-fleetmanager/actions/workflows/ci.yml/badge.svg)](https://github.com/Gameye/nakama-fleetmanager/actions/workflows/ci.yml) [![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.com/invite/QvJ3KH5max)
 
 The `fleetmanager` package implements [Nakama](https://heroiclabs.com/nakama)'s Go runtime Fleet Manager interface on top of [Gameye](https://gameye.com)'s Session API. When Nakama's matchmaker forms a match, the fleet manager starts a dedicated game server on Gameye, registers the matched players with it, and hands you the server's address to send to those players.
 
