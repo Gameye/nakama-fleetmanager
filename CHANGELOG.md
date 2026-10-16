@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here. The project follows [Semantic Versioning](https://semver.org/); before v1.0.0, minor releases may break the API.
 
+## v0.2.0
+
+### Added
+
+- **Region per match.** The reserved `Create` metadata key `gameye.region` (`MetadataKeyRegion`) starts that session in the given region instead of `GameyeConfig.Region`. It is not sent as a label. A value that is not a non-empty string returns `ErrInvalidRegion` before any API call.
+- **Latency-based placement.** Without `gameye.region`, `Create` uses the latencies Nakama passes in: among the regions every matched user reported, it picks the lowest worst-case latency (ties: lower mean, then region name). With no usable latencies it falls back to `GameyeConfig.Region`.
+
+### Changed
+
+- **`List` covers every region.** It lists the configured application and tag in all regions, since sessions can now start outside `GameyeConfig.Region`. Callers that relied on `List` returning only the configured region should filter the result themselves.
+
 ## v0.1.0
 
 First tagged release. Requires Nakama 3.39.0 or later.
